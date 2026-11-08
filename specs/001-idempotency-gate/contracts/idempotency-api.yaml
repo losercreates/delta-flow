@@ -1,0 +1,226 @@
+openapi: 3.1.0
+info:
+  title: DeltaFlow Idempotency Proxy & Inspector API
+  description: HTTP API contracts for DeltaFlow's high-consistency distributed idempotency gate.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+paths:
+  /api/v1/payments:
+    post:
+      summary: Execute Idempotent Payment Transfer
+      description: |
+        Demonstration endpoint intercepted by DeltaFlow's Idempotency Gate.
+        Guarantees exactly-once execution for identical Idempotency-Key headers.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique client-generated token ensuring exactly-once execution.
+          schema:
+            type: string
+            example: "pay_test_9f8b4a2e1c"
+        - name: X-Tenant-ID
+          in: header
+          required: false
+          description: Optional multi-tenant partition key (defaults to 'default').
+          schema:
+            type: string
+            default: "default"
+            example: "tenant_us_east"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '201':
+          description: Payment successfully created (either executed directly or served from cache).
+          headers:
+            Idempotency-Status:
+              schema:
+                type: string
+                enum: [DIRECT, CACHED]
+              description: Indicates whether this response was freshly executed or returned from idempotency cache.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: Missing or malformed Idempotency-Key header or invalid request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict due to payload tampering (hash mismatch) or active in-flight collision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictResponse'
+
+  /api/v1/idempotency/records/{key}:
+    get:
+      summary: Inspect Idempotency Record
+      description: Operator inspection endpoint to query current idempotency record status and cached payload.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: The idempotency key to inspect.
+          schema:
+            type: string
+        - name: X-Tenant-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            default: "default"
+      responses:
+        '200':
+          description: Idempotency record details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdempotencyRecordResponse'
+        '404':
+          description: Record not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - sourceAccountId
+        - targetAccountId
+        - amount
+        - currency
+      properties:
+        sourceAccountId:
+          type: string
+          example: "acc_1001"
+        targetAccountId:
+          type: string
+          example: "acc_2002"
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 500.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: "USD"
+
+    PaymentResponse:
+      type: object
+      required:
+        - transactionId
+        - status
+        - amount
+        - currency
+        - timestamp
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+          example: "e4d7f8a1-3b9c-4e8a-bf6d-8d4e2f9a1c3b"
+        status:
+          type: string
+          enum: [COMPLETED, PENDING]
+          example: "COMPLETED"
+        amount:
+          type: number
+          format: double
+          example: 500.00
+        currency:
+          type: string
+          example: "USD"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-11-08T16:00:00Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - errorCode
+        - message
+        - timestamp
+      properties:
+        errorCode:
+          type: string
+          example: "MISSING_IDEMPOTENCY_KEY"
+        message:
+          type: string
+          example: "The request is missing the required 'Idempotency-Key' header."
+        timestamp:
+          type: string
+          format: date-time
+
+    ConflictResponse:
+      type: object
+      required:
+        - errorCode
+        - message
+        - idempotencyKey
+        - timestamp
+      properties:
+        errorCode:
+          type: string
+          enum: [IDEMPOTENCY_KEY_PAYLOAD_MISMATCH, IDEMPOTENCY_KEY_IN_FLIGHT]
+          example: "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH"
+        message:
+          type: string
+          example: "Payload SHA-256 digest does not match the original request for this idempotency key."
+        idempotencyKey:
+          type: string
+          example: "pay_test_9f8b4a2e1c"
+        timestamp:
+          type: string
+          format: date-time
+
+    IdempotencyRecordResponse:
+      type: object
+      required:
+        - tenantId
+        - idempotencyKey
+        - requestHash
+        - status
+        - leaseExpiresAt
+        - createdAt
+      properties:
+        tenantId:
+          type: string
+          example: "default"
+        idempotencyKey:
+          type: string
+          example: "pay_test_9f8b4a2e1c"
+        requestHash:
+          type: string
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, RESOLVED, FAILED]
+          example: "RESOLVED"
+        responseStatusCode:
+          type: integer
+          example: 201
+        leaseExpiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
