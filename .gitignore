@@ -1,0 +1,28 @@
+# Java / Maven build output
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Gradle (if used)
+.gradle/
+build/
+
+# IDE / Editor files
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.tmp
+
+# Environment & local secrets
+.env
+.env.local
+

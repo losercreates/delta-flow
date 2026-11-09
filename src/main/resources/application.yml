@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: delta-flow
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/deltaflow}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 25
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+deltaflow:
+  idempotency:
+    enabled: true
+    lease-ttl: 30s
+    contender-poll-interval: 100ms
+    contender-max-wait: 3s
+    max-payload-size: 2097152 # 2MB
+  redis:
+    address: ${REDIS_URL:redis://localhost:6379}
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
