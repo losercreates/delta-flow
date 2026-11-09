@@ -16,7 +16,7 @@ Stores immutable request hashes, current lifecycle state, and cached terminal HT
 CREATE TABLE idempotency_records (
     tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
     idempotency_key VARCHAR(128) NOT NULL,
-    request_hash CHAR(64) NOT NULL,
+    request_hash VARCHAR(64) NOT NULL,
     status VARCHAR(20) NOT NULL,
     lock_token VARCHAR(64),
     response_status_code INT,
@@ -41,7 +41,7 @@ CREATE INDEX idx_idempotency_created_at
 | :--- | :--- | :--- | :--- |
 | `tenant_id` | `VARCHAR(64)` | No | Partition/tenant key for multi-tenant isolation. |
 | `idempotency_key` | `VARCHAR(128)` | No | Client-supplied unique token from `Idempotency-Key` header. |
-| `request_hash` | `CHAR(64)` | No | Lowercase hex string of SHA-256 digest of request body. |
+| `request_hash` | `VARCHAR(64)` | No | Lowercase hex string of SHA-256 digest of request body. |
 | `status` | `VARCHAR(20)` | No | Lifecycle status: `PENDING`, `PROCESSING`, `RESOLVED`, `FAILED`. |
 | `lock_token` | `VARCHAR(64)` | Yes | UUID of current lock owner (node/thread ID). Nullable when resolved. |
 | `response_status_code` | `INT` | Yes | HTTP status code (e.g. 200, 201, 400). Populated when `RESOLVED`. |

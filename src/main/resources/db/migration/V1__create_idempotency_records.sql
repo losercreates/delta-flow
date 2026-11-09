@@ -1,7 +1,7 @@
 CREATE TABLE idempotency_records (
     tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
     idempotency_key VARCHAR(128) NOT NULL,
-    request_hash CHAR(64) NOT NULL,
+    request_hash VARCHAR(64) NOT NULL,
     status VARCHAR(20) NOT NULL,
     lock_token VARCHAR(64),
     response_status_code INT,

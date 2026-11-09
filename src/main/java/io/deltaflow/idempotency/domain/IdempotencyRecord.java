@@ -1,6 +1,8 @@
 package io.deltaflow.idempotency.domain;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -25,10 +27,10 @@ public class IdempotencyRecord {
     @Column(name = "response_status_code")
     private Integer responseStatusCode;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "response_headers", columnDefinition = "jsonb")
     private String responseHeaders;
 
-    @Lob
     @Column(name = "response_payload")
     private byte[] responsePayload;
 
