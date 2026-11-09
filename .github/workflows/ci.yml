@@ -1,0 +1,84 @@
+name: DeltaFlow CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-compile:
+    name: Compile & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Compile Source Code
+        run: mvn clean compile -B
+
+  test:
+    name: Testcontainers & Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-compile
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run Unit & Integration Tests
+        run: mvn test -B
+
+      - name: Publish Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  package:
+    name: Package Application JAR
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Package JAR
+        run: mvn package -DskipTests -B
+
+      - name: Archive Built Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-flow-jar
+          path: target/*.jar
+          if-no-files-found: error
+
