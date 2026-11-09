@@ -14,6 +14,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 public abstract class AbstractIntegrationTest {
 
+    static {
+        System.setProperty("api.version", "1.44");
+        System.setProperty("docker.api.version", "1.44");
+        System.setProperty("docker.io.api.version", "1.44");
+        System.setProperty("DOCKER_API_VERSION", "1.44");
+    }
+
     @Container
     public static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("deltaflow_test")

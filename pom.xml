@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <redisson.version>3.37.0</redisson.version>
         <springdoc.version>2.6.0</springdoc.version>
-        <testcontainers.version>1.20.3</testcontainers.version>
+        <testcontainers.version>1.20.6</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -122,6 +122,21 @@
                     <compilerArgs>
                         <arg>-parameters</arg>
                     </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                    </environmentVariables>
+                    <systemPropertyVariables>
+                        <api.version>1.44</api.version>
+                        <docker.api.version>1.44</docker.api.version>
+                        <docker.io.api.version>1.44</docker.io.api.version>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>
