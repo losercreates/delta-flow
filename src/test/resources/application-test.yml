@@ -8,6 +8,10 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 deltaflow:
   idempotency:
@@ -16,6 +20,8 @@ deltaflow:
     contender-poll-interval: 50ms
     contender-max-wait: 1500ms
     max-payload-size: 2097152
+  redis:
+    address: redis://localhost:6379
 
 logging:
   level:
