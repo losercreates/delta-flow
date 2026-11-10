@@ -53,6 +53,9 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         String idempotencyKey = request.getHeader("Idempotency-Key");
         String tenantId = request.getHeader("X-Tenant-ID");
         if (tenantId == null || tenantId.isBlank()) {
+            tenantId = request.getHeader("X-Tenant-Id");
+        }
+        if (tenantId == null || tenantId.isBlank()) {
             tenantId = "default";
         }
 
