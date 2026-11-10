@@ -8,7 +8,7 @@
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat&logo=redis&logoColor=white)](https://redis.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-DeltaFlow is a high-consistency coordination proxy and transactional saga orchestrator engineered to guarantee **exactly-once execution** for distributed payment processing and financial transfers.
+DeltaFlow is a high-consistency coordination proxy and transactional saga orchestrator engineered to guarantee **exactly-once execution** and **durable forward progression** for distributed payment processing and financial transfers.
 
 ---
 
@@ -16,11 +16,12 @@ DeltaFlow is a high-consistency coordination proxy and transactional saga orches
 
 Distributed financial systems and microservice architectures frequently encounter partial failures:
 - **Duplicate Debits**: A payment request times out over the network while the debit succeeds remotely. An impatient client or automated gateway retries, double-charging the customer.
-- **Payload Tampering / Key Collision**: A client reuses an `Idempotency-Key` but alters the payload (e.g. changing the transaction amount or recipient account).
+- **Payload Tampering / Key Collision**: A client reuses an `Idempotency-Key` but alters the payload (e.g. changing transaction amount or recipient account).
 - **In-Flight Contention**: Rapid concurrent requests with the identical idempotency key arrive within milliseconds, creating race conditions across worker nodes.
+- **Unrecorded Step Intent**: A service crashes while dispatching a payment step. Without a Write-Ahead Log (WAL), the system cannot determine if the outbound call was initiated.
 - **Stranded States & Zombie Steps**: Worker processes crash mid-transaction, leaving distributed locks permanently orphaned.
 
-Full-fledged orchestration platforms (Temporal, Camunda) introduce proprietary DSLs, steep learning curves, and operational overhead. DeltaFlow provides a lightweight, database-backed idempotency proxy and state machine tailored specifically for financial consistency.
+DeltaFlow combines a high-speed distributed idempotency gate with a relational Write-Ahead Log (WAL) saga engine, providing deterministic multi-step transaction coordination with zero proprietary DSLs.
 
 ---
 
@@ -28,41 +29,96 @@ Full-fledged orchestration platforms (Temporal, Camunda) introduce proprietary D
 
 ```mermaid
 flowchart TD
-    Client["Client / API Gateway"] -->|"POST /api/v1/payments<br/>[Idempotency-Key, Payload]"| Filter["IdempotencyFilter"]
+    Client["Client / API Gateway"] -->|"POST /api/v1/transfers<br/>[Idempotency-Key, Payload]"| Filter["IdempotencyFilter"]
     
-    subgraph Gate ["Distributed Idempotency Gate"]
+    subgraph Gate ["1. Distributed Idempotency Gate"]
         Filter --> Hasher["PayloadHasher<br/>(SHA-256 Digest)"]
-        Hasher --> Coord["IdempotencyCoordinator"]
+        Hasher --> GateCoord["IdempotencyCoordinator"]
         
-        Coord <-->|"Primary Distributed Lock"| Redis[("Redis 7<br/>Redisson RLock")]
-        Coord <-->|"Pessimistic Fallback"| PG[("PostgreSQL 16<br/>PESSIMISTIC_WRITE")]
+        GateCoord <-->|"Primary Distributed Lock"| Redis[("Redis 7<br/>Redisson RLock")]
+        GateCoord <-->|"Pessimistic Fallback"| PG_Lock[("PostgreSQL 16<br/>PESSIMISTIC_WRITE")]
     end
     
-    Coord -->|"Cache Hit (RESOLVED)"| ReturnCached["Return Cached Response<br/>[Idempotency-Status: CACHED]"]
+    GateCoord -->|"Cache Hit (RESOLVED)"| ReturnCached["Return Cached Response<br/>[Idempotency-Status: CACHED]"]
     ReturnCached --> Client
     
-    Coord -->|"Lock Acquired (PROCESSING)"| Downstream["Downstream Handler<br/>(Payment Execution)"]
-    Downstream -->|"Save Response"| Coord
-    Coord --> ReturnDirect["Return Response<br/>[Idempotency-Status: DIRECT]"]
-    ReturnDirect --> Client
+    GateCoord -->|"Lock Acquired (PROCESSING)"| SagaEng["2. Saga Coordinator Engine"]
     
-    Coord -.->|"Tampering Detected"| Err409["409 Conflict<br/>PAYLOAD_MISMATCH"]
-    Coord -.->|"In-Flight Contention"| WaitOr409["Wait 3s or 409 Conflict<br/>KEY_IN_FLIGHT"]
+    subgraph SagaEngine ["Declarative Saga Coordinator & WAL Engine"]
+        SagaEng --> WAL_Init["WAL: Record Saga Pending/Executing"]
+        WAL_Init --> WAL_Store[("PostgreSQL 16<br/>saga_instances & saga_steps")]
+        
+        WAL_Init --> Step1["Step 1: Debit Account"]
+        Step1 -->|"WAL Intent (REQUIRES_NEW)"| WAL_Store
+        Step1 -->|"Outbound Call"| DebitSvc["Debit Service"]
+        DebitSvc -->|"WAL Step Completed"| WAL_Store
+        
+        Step1 --> Step2["Step 2: Credit Account"]
+        Step2 -->|"WAL Intent (REQUIRES_NEW)"| WAL_Store
+        Step2 -->|"Outbound Call"| CreditSvc["Credit Service"]
+        CreditSvc -->|"WAL Step Completed"| WAL_Store
+        
+        Step2 --> Step3["Step 3: Post Ledger Entry"]
+        Step3 -->|"WAL Intent (REQUIRES_NEW)"| WAL_Store
+        Step3 -->|"Outbound Call"| LedgerSvc["Ledger Service"]
+        LedgerSvc -->|"WAL Step Completed"| WAL_Store
+        
+        Step3 --> Finalize["WAL: Complete Saga"]
+        Finalize --> WAL_Store
+    end
+    
+    Finalize -->|"Save Resolved Result"| GateCoord
+    GateCoord --> ReturnDirect["Return Response<br/>[Idempotency-Status: DIRECT]"]
+    ReturnDirect --> Client
 ```
 
-### Key Architectural Capabilities
+---
 
-1. **Dual-Stage Lifecycle Locking**:
-   State transitions follow a strict 4-state lifecycle: `PENDING` $\rightarrow$ `PROCESSING` $\rightarrow$ `RESOLVED` / `FAILED`.
-2. **Cryptographic Payload Tampering Protection**:
-   Incoming request bodies are hashed into SHA-256 digests. If an existing key is presented with a mismatched body, DeltaFlow immediately rejects it with `HTTP 409 Conflict (IDEMPOTENCY_KEY_PAYLOAD_MISMATCH)` without calling downstream services.
-3. **Tiered Distributed Locking**:
-   - **Primary**: Redis distributed locking with sub-millisecond acquisition and Redis Pub/Sub transition notifications.
-   - **Failover**: Automatic fallback to PostgreSQL row-level pessimistic locking (`PESSIMISTIC_WRITE` / `SELECT ... FOR UPDATE`).
-4. **Lease Auto-Expiration & Recovery**:
-   Active locks carry a configurable lease TTL (default: 30 seconds). If an orchestrator instance crashes, subsequent retries reclaim the expired lease, preventing deadlocks.
-5. **Java 21 Sealed Domain Model**:
-   State transitions and lock acquisition results are modeled using Java 21 sealed interfaces and record patterns, enforcing compile-time exhaustiveness checks in `switch` expressions.
+## Key Capabilities
+
+1. **Relational Write-Ahead Log (WAL) Journaling**:
+   - Every step's intent and request payload are durably committed to PostgreSQL (`Propagation.REQUIRES_NEW`) *prior* to outbound remote execution.
+   - Preserves complete step execution records in `saga_steps` (request/response JSONB, timestamps, lease deadlines, failure details).
+
+2. **Declarative Fluent Saga API**:
+   - Define multi-step pipelines cleanly in type-safe Java code:
+   ```java
+   SagaDefinition<TransferRequestDto, TransferResponseDto> saga = SagaBuilder
+           .<TransferRequestDto, TransferResponseDto>named("account-transfer")
+           .step("debit-step")
+               .action((ctx, req) -> debitService.debit(req.sourceAccountId(), req.amount(), ctx.getIdempotencyKey()))
+               .compensate((ctx, req) -> debitService.compensateDebit(req.sourceAccountId(), req.amount(), ctx.getIdempotencyKey()))
+           .step("credit-step")
+               .action((ctx, req) -> creditService.credit(req.targetAccountId(), req.amount(), ctx.getIdempotencyKey()))
+               .compensate((ctx, req) -> creditService.compensateCredit(req.targetAccountId(), req.amount(), ctx.getIdempotencyKey()))
+           .step("ledger-step")
+               .action((ctx, req) -> ledgerService.recordEntry(
+                       ctx.getStepResult("debit-step", DebitResult.class).debitId(),
+                       ctx.getStepResult("credit-step", CreditResult.class).creditId(),
+                       req.amount(),
+                       req.currency()
+               ))
+           .onCompletion((ctx, req) -> new TransferResponseDto(ctx.getSagaId(), "tx_" + ctx.getIdempotencyKey(), "COMPLETED", req.amount(), req.currency(), 3, Instant.now()))
+           .build();
+   ```
+
+3. **Java 21 Sealed Lifecycle State Machines**:
+   - Saga instances and individual steps transition through sealed hierarchies (`Pending`, `Executing`, `Completed`, `Failed`, `Compensating`).
+   - Evaluated using compile-time exhaustive switch pattern matching with zero `default` catch-alls.
+
+4. **Cryptographic Payload Tampering Protection**:
+   - Incoming request payloads are hashed using SHA-256 digests.
+   - Any reuse of an existing idempotency key with an altered payload is immediately rejected with `HTTP 409 Conflict (IDEMPOTENCY_KEY_PAYLOAD_MISMATCH)`.
+
+5. **Tiered Distributed Locking**:
+   - **Primary**: Redisson distributed locking on Redis 7 with sub-millisecond lease management.
+   - **Failover**: Automatic fallback to PostgreSQL row-level pessimistic locking (`PESSIMISTIC_WRITE`).
+
+6. **Immutable Context Flow**:
+   - Downstream steps consume verified outputs from upstream steps through an immutable `SagaExecutionContext`.
+
+7. **Structured Audit Trail**:
+   - Emits immutable JSON audit log events (`SAGA_STARTED`, `STEP_EXECUTING`, `STEP_COMPLETED`, `SAGA_COMPLETED`, `STEP_FAILED`) for regulatory compliance (SOC2/PCI-DSS).
 
 ---
 
@@ -70,12 +126,12 @@ flowchart TD
 
 | Component | Technology | Description |
 | :--- | :--- | :--- |
-| **Language** | Java 21 LTS | Virtual Threads (Project Loom), Sealed Interfaces, Pattern Matching |
+| **Language** | Java 21 LTS | Sealed Interfaces, Pattern Matching, Record Patterns |
 | **Framework** | Spring Boot 3.3.5 | Spring Web, Spring Data JPA, Hibernate 6, Actuator |
-| **Relational Storage** | PostgreSQL 16 | ACID persistence, `PESSIMISTIC_WRITE` row locks, Flyway migrations |
-| **Distributed Cache** | Redis 7 & Redisson | Sub-millisecond distributed locking and Pub/Sub notifications |
+| **Relational Storage** | PostgreSQL 16 | ACID persistence, `JSONB` journals, `PESSIMISTIC_WRITE` row locks, Flyway migrations |
+| **Distributed Cache** | Redis 7 & Redisson | High-throughput distributed locks and TTL lease management |
 | **Documentation** | Springdoc OpenAPI 2.6 | Interactive Swagger UI and OpenAPI 3.1 contract schemas |
-| **Testing** | Testcontainers 1.20 | Containerized PostgreSQL and Redis for integration tests |
+| **Testing** | Testcontainers 1.20 | Containerized PostgreSQL 16 and Redis 7 test environments |
 
 ---
 
@@ -83,11 +139,11 @@ flowchart TD
 
 ### Prerequisites
 - **Java 21** or higher
-- **Maven 3.9+** (or use system `mvn`)
-- **Docker** (for running local dependencies and Testcontainers)
+- **Maven 3.9+**
+- **Docker** (for local dependencies and running integration tests)
 
 ### 1. Launch Infrastructure
-Start PostgreSQL and Redis using Docker:
+Start PostgreSQL and Redis:
 
 ```bash
 docker run -d --name deltaflow-postgres -e POSTGRES_DB=deltaflow -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine
@@ -99,21 +155,21 @@ docker run -d --name deltaflow-redis -p 6379:6379 redis:7-alpine
 mvn clean spring-boot:run
 ```
 
-The application will start on `http://localhost:8080`.
+The service will start on `http://localhost:8080`.
 - **OpenAPI Swagger UI**: `http://localhost:8080/swagger-ui.html`
 - **OpenAPI Schema**: `http://localhost:8080/v3/api-docs`
 
 ---
 
-## End-to-End Verification Scenarios
+## API Usage & Verification Scenarios
 
-### Scenario 1: Initial Payment Request
-Execute an idempotent money transfer:
+### Scenario 1: Execute 3-Step Account Transfer
+Submit an account transfer with a client-generated `Idempotency-Key`:
 
 ```bash
-curl -i -X POST http://localhost:8080/api/v1/payments \
+curl -i -X POST http://localhost:8080/api/v1/transfers \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: pay_transfer_1001" \
+  -H "Idempotency-Key: xfer_demo_1001" \
   -d '{
     "sourceAccountId": "acc_1001",
     "targetAccountId": "acc_2002",
@@ -122,28 +178,32 @@ curl -i -X POST http://localhost:8080/api/v1/payments \
   }'
 ```
 
-**Response**:
+**Response (`201 Created`, Direct Execution)**:
 ```http
 HTTP/1.1 201 Created
 Idempotency-Status: DIRECT
 Content-Type: application/json
 
 {
-  "transactionId": "e4d7f8a1-3b9c-4e8a-bf6d-8d4e2f9a1c3b",
+  "sagaId": "4a73e86f-5b6d-4ee8-809e-0129a089b031",
+  "transactionId": "tx_xfer_demo_1001",
   "status": "COMPLETED",
   "amount": 500.00,
   "currency": "USD",
-  "timestamp": "2026-11-09T02:00:00Z"
+  "stepsCompleted": 3,
+  "executedAt": "2026-11-10T06:45:00Z"
 }
 ```
 
-### Scenario 2: Identical Replay (Cached Terminal Response)
-Resend the exact same request:
+---
+
+### Scenario 2: Identical Replay (Zero Downstream Execution)
+Resend the identical request with the same `Idempotency-Key`:
 
 ```bash
-curl -i -X POST http://localhost:8080/api/v1/payments \
+curl -i -X POST http://localhost:8080/api/v1/transfers \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: pay_transfer_1001" \
+  -H "Idempotency-Key: xfer_demo_1001" \
   -d '{
     "sourceAccountId": "acc_1001",
     "targetAccountId": "acc_2002",
@@ -152,38 +212,42 @@ curl -i -X POST http://localhost:8080/api/v1/payments \
   }'
 ```
 
-**Response**:
+**Response (`201 Created`, Served from Cache)**:
 ```http
 HTTP/1.1 201 Created
 Idempotency-Status: CACHED
 Content-Type: application/json
 
 {
-  "transactionId": "e4d7f8a1-3b9c-4e8a-bf6d-8d4e2f9a1c3b",
+  "sagaId": "4a73e86f-5b6d-4ee8-809e-0129a089b031",
+  "transactionId": "tx_xfer_demo_1001",
   "status": "COMPLETED",
   "amount": 500.00,
   "currency": "USD",
-  "timestamp": "2026-11-09T02:00:00Z"
+  "stepsCompleted": 3,
+  "executedAt": "2026-11-10T06:45:00Z"
 }
 ```
-*Served in <15ms directly from cache with zero downstream execution.*
+*Returned in <10ms directly from cache with zero participant step executions.*
+
+---
 
 ### Scenario 3: Payload Tampering Rejection
-Send a request with the same `Idempotency-Key` but modified amount ($999.00):
+Submit a request using the same `Idempotency-Key` but an altered amount:
 
 ```bash
-curl -i -X POST http://localhost:8080/api/v1/payments \
+curl -i -X POST http://localhost:8080/api/v1/transfers \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: pay_transfer_1001" \
+  -H "Idempotency-Key: xfer_demo_1001" \
   -d '{
     "sourceAccountId": "acc_1001",
     "targetAccountId": "acc_2002",
-    "amount": 999.00,
+    "amount": 9999.00,
     "currency": "USD"
   }'
 ```
 
-**Response**:
+**Response (`409 Conflict`)**:
 ```http
 HTTP/1.1 409 Conflict
 Content-Type: application/json
@@ -191,48 +255,35 @@ Content-Type: application/json
 {
   "errorCode": "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
   "message": "Payload SHA-256 digest does not match the original request for this idempotency key.",
-  "idempotencyKey": "pay_transfer_1001"
+  "idempotencyKey": "xfer_demo_1001"
 }
-```
-
-### Scenario 4: Operator Inspection
-Inspect the current status and cached payload of any transaction:
-
-```bash
-curl -i -X GET http://localhost:8080/api/v1/idempotency/records/pay_transfer_1001
 ```
 
 ---
 
-## Testing & Quality Gates
+### Scenario 4: Inspect WAL Journal Records
+Inspect top-level saga status and detailed step journals:
 
-Run the automated Testcontainers test suite:
+```bash
+# Get Saga Instance Details
+curl -s http://localhost:8080/api/v1/sagas/4a73e86f-5b6d-4ee8-809e-0129a089b031
+
+# Get Write-Ahead Log Step Records
+curl -s http://localhost:8080/api/v1/sagas/4a73e86f-5b6d-4ee8-809e-0129a089b031/steps
+```
+
+---
+
+## Testing
+
+Run the test suite (requires Docker for Testcontainers):
 
 ```bash
 mvn test
 ```
-
-### Included Test Suites
-- **`IdempotencyReplayIntegrationTest`**: Verifies exact duplicate requests return cached responses without re-executing downstream handlers.
-- **`PayloadTamperingIntegrationTest`**: Verifies cryptographic SHA-256 mismatch detection rejects altered bodies with HTTP 409.
-- **`DistributedLockConcurrencyTest`**: Blasts 20 concurrent requests at the same millisecond, proving downstream executes exactly once with zero double-spends.
-- **`LeaseTimeoutRecoveryIntegrationTest`**: Verifies orphaned leases from crashed nodes are safely reclaimed.
-- **`QuickstartValidationTest`**: End-to-end acceptance suite covering all scenarios.
-
----
-
-## Roadmap
-
-- [x] **Milestone 1**: Distributed Idempotency Gate (Redis + DB Locks, SHA-256 Digest, Lease Expiry)
-- [ ] **Milestone 2**: Declarative Saga Coordinator & WAL Engine (Forward 3-Step Pipeline, DB Journal)
-- [ ] **Milestone 3**: Backward Compensation, Crash Recovery & Zombie Fencing (Rollback Engine, Fencing Tokens)
-- [ ] **Milestone 4**: Transactional Outbox & Resilience (Resilience4j Circuit Breakers, Loom Concurrency)
-- [ ] **Milestone 5**: Operator Management Dashboard (React + TypeScript DAG Visualizer)
-- [ ] **Milestone 6**: Chaos Testing & Production Hardening (Toxiproxy 30% packet drop, OpenTelemetry)
 
 ---
 
 ## License
 
 Distributed under the Apache 2.0 License. See `LICENSE` for details.
-
