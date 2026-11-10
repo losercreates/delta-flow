@@ -17,6 +17,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -36,7 +38,7 @@ public class IdempotencyCoordinator {
     @Value("${deltaflow.idempotency.lease-ttl:30s}")
     private Duration leaseTtl;
 
-    @Value("${deltaflow.idempotency.contender-poll-interval:100ms}")
+    @Value("${deltaflow.idempotency.contender-poll-interval:50ms}")
     private Duration pollInterval;
 
     @Value("${deltaflow.idempotency.contender-max-wait:3s}")
@@ -59,7 +61,6 @@ public class IdempotencyCoordinator {
     /**
      * Attempts to acquire an idempotency lock or returns cached terminal result.
      */
-    @Transactional(propagation = Propagation.REQUIRED)
     public LockAcquisitionResult prepareOrResolve(String tenantId, String idempotencyKey, String requestHash) {
         Optional<IdempotencyRecord> recordOpt = repository.findById(tenantId, idempotencyKey);
 
@@ -77,18 +78,8 @@ public class IdempotencyCoordinator {
 
             // US1: Check if already resolved
             if ("RESOLVED".equalsIgnoreCase(record.getStatus())) {
-                Map<String, String> headers = parseHeaders(record.getResponseHeaders());
-                IdempotencyState.Resolved resolved = new IdempotencyState.Resolved(
-                    tenantId,
-                    idempotencyKey,
-                    record.getRequestHash(),
-                    record.getResponseStatusCode() != null ? record.getResponseStatusCode() : 200,
-                    headers,
-                    record.getResponsePayload() != null ? record.getResponsePayload() : new byte[0],
-                    record.getUpdatedAt()
-                );
                 auditLogger.logEvent("CACHE_HIT", tenantId, idempotencyKey, Map.of("status", "RESOLVED"));
-                return new LockAcquisitionResult.Replayed(resolved);
+                return toResolvedResult(record);
             }
 
             // US4: Lease expiration recovery
@@ -98,62 +89,102 @@ public class IdempotencyCoordinator {
                 auditLogger.logEvent("LEASE_EXPIRED_RECLAIMED", tenantId, idempotencyKey, Map.of(
                     "expiredAt", record.getLeaseExpiresAt().toString()
                 ));
-                return acquireLockAndPersist(tenantId, idempotencyKey, requestHash, record);
+                Optional<LockAcquisitionResult.Acquired> acquiredOpt = tryAcquireLockAndPersist(tenantId, idempotencyKey, requestHash, record);
+                if (acquiredOpt.isPresent()) {
+                    return acquiredOpt.get();
+                }
+                return pollForResolutionOrConflict(tenantId, idempotencyKey, requestHash);
             }
 
             // US3: Active in-flight processing - wait and poll or conflict
             return pollForResolutionOrConflict(tenantId, idempotencyKey, requestHash);
         }
 
-        // New record - acquire lock
-        return acquireLockAndPersist(tenantId, idempotencyKey, requestHash, null);
+        // New record - attempt lock acquisition
+        Optional<LockAcquisitionResult.Acquired> acquiredOpt = tryAcquireLockAndPersist(tenantId, idempotencyKey, requestHash, null);
+        if (acquiredOpt.isPresent()) {
+            return acquiredOpt.get();
+        }
+
+        // Another concurrent request acquired the lock first or already resolved
+        Optional<IdempotencyRecord> recheck = repository.findById(tenantId, idempotencyKey);
+        if (recheck.isPresent() && "RESOLVED".equalsIgnoreCase(recheck.get().getStatus())) {
+            auditLogger.logEvent("CACHE_HIT", tenantId, idempotencyKey, Map.of("status", "RESOLVED"));
+            return toResolvedResult(recheck.get());
+        }
+
+        return pollForResolutionOrConflict(tenantId, idempotencyKey, requestHash);
     }
 
-    private LockAcquisitionResult acquireLockAndPersist(
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Optional<LockAcquisitionResult.Acquired> tryAcquireLockAndPersist(
         String tenantId, 
         String idempotencyKey, 
         String requestHash, 
         IdempotencyRecord existingRecord
     ) {
         Optional<String> tokenOpt = Optional.empty();
+        boolean primaryLockAttempted = false;
 
         if (distributedLockManager != null) {
-            tokenOpt = distributedLockManager.acquireLock(tenantId, idempotencyKey, leaseTtl);
+            try {
+                tokenOpt = distributedLockManager.acquireLock(tenantId, idempotencyKey, leaseTtl);
+                primaryLockAttempted = true;
+            } catch (Exception e) {
+                log.warn("Primary distributed lock unavailable, invoking PostgreSQL fallback: {}", e.getMessage());
+                primaryLockAttempted = false;
+            }
         }
 
-        if (tokenOpt.isEmpty()) {
+        if (!primaryLockAttempted) {
             tokenOpt = postgresLockFallback.acquireLock(tenantId, idempotencyKey, requestHash, leaseTtl);
         }
 
         if (tokenOpt.isEmpty()) {
-            throw new IdempotencyConflictException(
-                "IDEMPOTENCY_KEY_IN_FLIGHT",
-                "Another process is actively executing with this idempotency key.",
-                idempotencyKey
-            );
+            return Optional.empty();
         }
 
         String token = tokenOpt.get();
         Instant leaseExpiresAt = Instant.now().plus(leaseTtl);
 
-        IdempotencyRecord record = existingRecord != null ? existingRecord : new IdempotencyRecord(
-            new IdempotencyRecordId(tenantId, idempotencyKey),
-            requestHash,
-            "PROCESSING",
-            leaseExpiresAt
-        );
-        record.setStatus("PROCESSING");
-        record.setLockToken(token);
-        record.setLeaseExpiresAt(leaseExpiresAt);
-        record.setRequestHash(requestHash);
-        repository.save(record);
+        // When primary distributed lock (Redis) succeeded, double-check database state
+        if (primaryLockAttempted) {
+            Optional<IdempotencyRecord> currentOpt = repository.findById(tenantId, idempotencyKey);
+            if (currentOpt.isPresent()) {
+                IdempotencyRecord current = currentOpt.get();
+                if ("RESOLVED".equalsIgnoreCase(current.getStatus())) {
+                    log.info("Key already resolved while acquiring lock: {}. Releasing lock.", idempotencyKey);
+                    distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                    return Optional.empty();
+                }
+                if ("PROCESSING".equalsIgnoreCase(current.getStatus()) && current.getLeaseExpiresAt() != null && current.getLeaseExpiresAt().isAfter(Instant.now())) {
+                    if (existingRecord == null) {
+                        log.info("Key actively processing while acquiring lock: {}. Releasing lock.", idempotencyKey);
+                        distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                        return Optional.empty();
+                    }
+                }
+            }
+
+            IdempotencyRecord record = currentOpt.orElseGet(() -> existingRecord != null ? existingRecord : new IdempotencyRecord(
+                new IdempotencyRecordId(tenantId, idempotencyKey),
+                requestHash,
+                "PROCESSING",
+                leaseExpiresAt
+            ));
+            record.setStatus("PROCESSING");
+            record.setLockToken(token);
+            record.setLeaseExpiresAt(leaseExpiresAt);
+            record.setRequestHash(requestHash);
+            repository.saveAndFlush(record);
+        }
 
         auditLogger.logEvent("LOCK_ACQUIRED", tenantId, idempotencyKey, Map.of(
             "lockToken", token,
             "leaseExpiresAt", leaseExpiresAt.toString()
         ));
 
-        return new LockAcquisitionResult.Acquired(token);
+        return Optional.of(new LockAcquisitionResult.Acquired(token));
     }
 
     private LockAcquisitionResult pollForResolutionOrConflict(String tenantId, String idempotencyKey, String requestHash) {
@@ -169,20 +200,25 @@ public class IdempotencyCoordinator {
             }
 
             Optional<IdempotencyRecord> current = repository.findById(tenantId, idempotencyKey);
-            if (current.isPresent() && "RESOLVED".equalsIgnoreCase(current.get().getStatus())) {
+            if (current.isPresent()) {
                 IdempotencyRecord r = current.get();
-                Map<String, String> headers = parseHeaders(r.getResponseHeaders());
-                IdempotencyState.Resolved resolved = new IdempotencyState.Resolved(
-                    tenantId,
-                    idempotencyKey,
-                    r.getRequestHash(),
-                    r.getResponseStatusCode() != null ? r.getResponseStatusCode() : 200,
-                    headers,
-                    r.getResponsePayload() != null ? r.getResponsePayload() : new byte[0],
-                    r.getUpdatedAt()
-                );
-                auditLogger.logEvent("CACHE_HIT_AFTER_WAIT", tenantId, idempotencyKey, Collections.emptyMap());
-                return new LockAcquisitionResult.Replayed(resolved);
+
+                if (!Objects.equals(r.getRequestHash(), requestHash)) {
+                    throw new PayloadMismatchException(idempotencyKey, r.getRequestHash(), requestHash);
+                }
+
+                if ("RESOLVED".equalsIgnoreCase(r.getStatus())) {
+                    auditLogger.logEvent("CACHE_HIT_AFTER_WAIT", tenantId, idempotencyKey, Collections.emptyMap());
+                    return toResolvedResult(r);
+                }
+
+                if ("FAILED".equalsIgnoreCase(r.getStatus())) {
+                    throw new IdempotencyConflictException(
+                        "IDEMPOTENCY_TRANSACTION_FAILED",
+                        "Transaction execution failed on initial attempt.",
+                        idempotencyKey
+                    );
+                }
             }
         }
 
@@ -210,16 +246,25 @@ public class IdempotencyCoordinator {
             record.setResponsePayload(payload);
             String token = record.getLockToken();
             record.setLockToken(null);
-            repository.save(record);
-
-            if (distributedLockManager != null && token != null) {
-                distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
-            }
+            repository.saveAndFlush(record);
 
             auditLogger.logEvent("RESOLVED", tenantId, idempotencyKey, Map.of(
                 "statusCode", statusCode,
                 "payloadBytes", payload != null ? payload.length : 0
             ));
+
+            if (distributedLockManager != null && token != null) {
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                        }
+                    });
+                } else {
+                    distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                }
+            }
         }
     }
 
@@ -231,14 +276,37 @@ public class IdempotencyCoordinator {
             record.setStatus("FAILED");
             String token = record.getLockToken();
             record.setLockToken(null);
-            repository.save(record);
-
-            if (distributedLockManager != null && token != null) {
-                distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
-            }
+            repository.saveAndFlush(record);
 
             auditLogger.logEvent("FAILED", tenantId, idempotencyKey, Map.of("reason", reason != null ? reason : "unknown"));
+
+            if (distributedLockManager != null && token != null) {
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                        }
+                    });
+                } else {
+                    distributedLockManager.releaseLock(tenantId, idempotencyKey, token);
+                }
+            }
         }
+    }
+
+    private LockAcquisitionResult.Replayed toResolvedResult(IdempotencyRecord record) {
+        Map<String, String> headers = parseHeaders(record.getResponseHeaders());
+        IdempotencyState.Resolved resolved = new IdempotencyState.Resolved(
+            record.getId().getTenantId(),
+            record.getId().getIdempotencyKey(),
+            record.getRequestHash(),
+            record.getResponseStatusCode() != null ? record.getResponseStatusCode() : 200,
+            headers,
+            record.getResponsePayload() != null ? record.getResponsePayload() : new byte[0],
+            record.getUpdatedAt()
+        );
+        return new LockAcquisitionResult.Replayed(resolved);
     }
 
     private String serializeHeaders(Map<String, String> headers) {
@@ -265,4 +333,3 @@ public class IdempotencyCoordinator {
         }
     }
 }
-

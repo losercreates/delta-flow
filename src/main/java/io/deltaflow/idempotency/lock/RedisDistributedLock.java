@@ -4,25 +4,17 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-@Component
-@Primary
-@ConditionalOnBean(RedissonClient.class)
 public class RedisDistributedLock implements DistributedLockManager {
 
     private static final Logger log = LoggerFactory.getLogger(RedisDistributedLock.class);
     private final RedissonClient redissonClient;
 
-    @Autowired(required = false)
     public RedisDistributedLock(RedissonClient redissonClient) {
         this.redissonClient = redissonClient;
     }
@@ -48,14 +40,15 @@ public class RedisDistributedLock implements DistributedLockManager {
                 log.debug("Acquired Redis lock for key: {}, token: {}", lockKey, lockToken);
                 return Optional.of(lockToken);
             }
+            return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Interrupted while trying to acquire lock for key: {}", lockKey);
+            return Optional.empty();
         } catch (Exception e) {
             log.error("Error acquiring Redis lock for key: {}, fallback needed", lockKey, e);
+            throw new RuntimeException("Redis lock service unavailable", e);
         }
-
-        return Optional.empty();
     }
 
     @Override
@@ -67,7 +60,7 @@ public class RedisDistributedLock implements DistributedLockManager {
         String lockKey = buildLockKey(tenantId, idempotencyKey);
         RLock lock = redissonClient.getLock(lockKey);
         try {
-            if (lock.isHeldByCurrentThread()) {
+            if (lock.isLocked() && lock.isHeldByCurrentThread()) {
                 lock.unlock();
                 log.debug("Released Redis lock for key: {}", lockKey);
                 return true;

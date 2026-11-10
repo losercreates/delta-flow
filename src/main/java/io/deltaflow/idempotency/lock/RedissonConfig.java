@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 @Configuration
 public class RedissonConfig {
@@ -43,6 +44,12 @@ public class RedissonConfig {
                 .setRetryInterval(1500);
 
         return Redisson.create(config);
+    }
+
+    @Bean
+    @Primary
+    public DistributedLockManager distributedLockManager(RedissonClient redissonClient) {
+        return new RedisDistributedLock(redissonClient);
     }
 
     private String resolveAddress() {
