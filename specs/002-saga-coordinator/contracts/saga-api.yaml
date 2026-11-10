@@ -1,0 +1,267 @@
+openapi: 3.1.0
+info:
+  title: DeltaFlow Saga Orchestration API
+  version: 1.0.0
+  description: >
+    API for declarative saga orchestration and Write-Ahead Log (WAL) journal inspection
+    for distributed financial transfers in DeltaFlow.
+
+paths:
+  /api/v1/transfers:
+    post:
+      summary: Initiate an Account-to-Account Transfer Saga
+      description: >
+        Executes a 3-step sequential saga (Debit -> Credit -> Ledger) guarded by an
+        Idempotency-Key. Replayed requests return cached terminal results immediately.
+      operationId: initiateTransfer
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique client idempotency key
+          schema:
+            type: string
+            maxLength: 128
+            example: "transfer_demo_1714500000"
+        - name: X-Tenant-Id
+          in: header
+          required: false
+          description: Multi-tenant partition ID
+          schema:
+            type: string
+            default: "default"
+            example: "default"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+      responses:
+        '201':
+          description: Transfer executed or replayed from cache
+          headers:
+            Idempotency-Status:
+              schema:
+                type: string
+                enum: [DIRECT, CACHED]
+              description: Indicates whether response was freshly executed or returned from cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResponse'
+        '400':
+          description: Missing or malformed request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Payload tampering detected or concurrent in-flight conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unrecoverable step failure or downstream outage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/sagas/{sagaId}:
+    get:
+      summary: Get Saga Instance Status
+      description: Retrieves the current lifecycle status and details of a saga instance.
+      operationId: getSaga
+      parameters:
+        - name: sagaId
+          in: path
+          required: true
+          description: UUID of the saga instance
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Saga instance details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaInstanceDto'
+        '404':
+          description: Saga not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/sagas/{sagaId}/steps:
+    get:
+      summary: Get Saga Step Journals (WAL)
+      description: Returns the ordered list of Write-Ahead Log journal records for all steps in the saga.
+      operationId: getSagaSteps
+      parameters:
+        - name: sagaId
+          in: path
+          required: true
+          description: UUID of the saga instance
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ordered list of step execution journals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SagaStepDto'
+        '404':
+          description: Saga not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    TransferRequest:
+      type: object
+      required:
+        - sourceAccountId
+        - targetAccountId
+        - amount
+        - currency
+      properties:
+        sourceAccountId:
+          type: string
+          example: "acc_1001"
+        targetAccountId:
+          type: string
+          example: "acc_2002"
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          example: 500.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: "USD"
+
+    TransferResponse:
+      type: object
+      required:
+        - sagaId
+        - transactionId
+        - status
+        - amount
+        - currency
+        - stepsCompleted
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+          example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+        transactionId:
+          type: string
+          example: "tx_transfer_1714500000"
+        status:
+          type: string
+          enum: [COMPLETED, FAILED]
+          example: "COMPLETED"
+        amount:
+          type: number
+          format: double
+          example: 500.00
+        currency:
+          type: string
+          example: "USD"
+        stepsCompleted:
+          type: integer
+          example: 3
+        executedAt:
+          type: string
+          format: date-time
+          example: "2026-11-10T06:15:00Z"
+
+    SagaInstanceDto:
+      type: object
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+        idempotencyKey:
+          type: string
+        sagaType:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, EXECUTING, COMPLETED, FAILED, COMPENSATING]
+        currentStep:
+          type: integer
+        payload:
+          type: object
+        resultPayload:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SagaStepDto:
+      type: object
+      properties:
+        stepId:
+          type: string
+          format: uuid
+        sagaId:
+          type: string
+          format: uuid
+        stepName:
+          type: string
+        stepIndex:
+          type: integer
+        status:
+          type: string
+          enum: [NOT_STARTED, EXECUTING, COMPLETED, FAILED, COMPENSATED]
+        requestPayload:
+          type: object
+        responsePayload:
+          type: object
+        errorDetails:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - errorCode
+        - message
+        - timestamp
+      properties:
+        errorCode:
+          type: string
+          example: "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH"
+        message:
+          type: string
+          example: "Request payload does not match stored hash for this idempotency key"
+        timestamp:
+          type: string
+          format: date-time
+        idempotencyKey:
+          type: string
+          example: "transfer_demo_1714500000"
+
