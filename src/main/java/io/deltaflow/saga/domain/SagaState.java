@@ -9,7 +9,8 @@ public sealed interface SagaState permits
     SagaState.Executing, 
     SagaState.Completed, 
     SagaState.Failed, 
-    SagaState.Compensating {
+    SagaState.Compensating,
+    SagaState.Compensated {
 
     record Pending(
         UUID sagaId, 
@@ -49,5 +50,11 @@ public sealed interface SagaState permits
         int rollbackStepIndex, 
         String cause
     ) implements SagaState {}
-}
 
+    record Compensated(
+        UUID sagaId, 
+        String tenantId, 
+        Map<String, Object> compensationResult, 
+        Instant compensatedAt
+    ) implements SagaState {}
+}

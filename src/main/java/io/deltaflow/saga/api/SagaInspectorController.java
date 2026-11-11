@@ -84,6 +84,7 @@ public class SagaInspectorController {
                         s.getRequestPayload(),
                         s.getResponsePayload(),
                         s.getErrorDetails(),
+                        s.getFencingToken(),
                         s.getCreatedAt(),
                         s.getUpdatedAt()
                 ))

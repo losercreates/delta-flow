@@ -1,8 +1,10 @@
 package io.deltaflow.saga.api;
 
+import io.deltaflow.saga.api.dto.TransferCompensationResponseDto;
 import io.deltaflow.saga.api.dto.TransferRequestDto;
 import io.deltaflow.saga.api.dto.TransferResponseDto;
 import io.deltaflow.saga.builder.SagaDefinition;
+import io.deltaflow.saga.exception.SagaCompensatedException;
 import io.deltaflow.saga.service.SagaCoordinator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -14,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @RestController
@@ -38,9 +41,10 @@ public class TransferController {
             @ApiResponse(responseCode = "201", description = "Transfer executed or replayed from cache"),
             @ApiResponse(responseCode = "400", description = "Missing or malformed request parameters"),
             @ApiResponse(responseCode = "409", description = "Payload tampering detected or concurrent conflict"),
+            @ApiResponse(responseCode = "422", description = "Transfer aborted and rolled back via backward compensation"),
             @ApiResponse(responseCode = "500", description = "Unrecoverable step failure or downstream outage")
     })
-    public ResponseEntity<TransferResponseDto> initiateTransfer(
+    public ResponseEntity<?> initiateTransfer(
             @Parameter(description = "Unique client idempotency key", required = true)
             @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey,
             @Parameter(description = "Multi-tenant partition ID", required = false)
@@ -52,14 +56,26 @@ public class TransferController {
         }
 
         UUID sagaId = UUID.randomUUID();
-        TransferResponseDto responseDto = sagaCoordinator.executeSaga(
-                transferSagaDefinition,
-                sagaId,
-                tenantId,
-                idempotencyKey,
-                requestDto
-        );
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
+        try {
+            TransferResponseDto responseDto = sagaCoordinator.executeSaga(
+                    transferSagaDefinition,
+                    sagaId,
+                    tenantId,
+                    idempotencyKey,
+                    requestDto
+            );
+            return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
+        } catch (SagaCompensatedException e) {
+            TransferCompensationResponseDto compensationDto = new TransferCompensationResponseDto(
+                    e.getSagaId(),
+                    e.getIdempotencyKey(),
+                    "COMPENSATED",
+                    e.getFailedStep(),
+                    e.getMessage(),
+                    e.getCompensatedSteps(),
+                    Instant.now()
+            );
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(compensationDto);
+        }
     }
 }

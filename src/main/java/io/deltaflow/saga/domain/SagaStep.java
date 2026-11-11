@@ -46,6 +46,9 @@ public class SagaStep {
     @Column(name = "lease_expires_at")
     private Instant leaseExpiresAt;
 
+    @Column(name = "fencing_token", nullable = false)
+    private long fencingToken = 1L;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -150,6 +153,14 @@ public class SagaStep {
 
     public void setLeaseExpiresAt(Instant leaseExpiresAt) {
         this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public long getFencingToken() {
+        return fencingToken;
+    }
+
+    public void setFencingToken(long fencingToken) {
+        this.fencingToken = fencingToken;
     }
 
     public Instant getCreatedAt() {

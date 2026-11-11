@@ -24,6 +24,7 @@ public class TransferSagaConfig {
             LedgerService ledgerService
     ) {
         return SagaBuilder.<TransferRequestDto, TransferResponseDto>named(SAGA_NAME)
+                .inputType(TransferRequestDto.class)
                 .step("debit-step")
                     .action((ctx, req) -> debitService.debit(req.sourceAccountId(), req.amount(), ctx.getIdempotencyKey()))
                     .compensate((ctx, req) -> debitService.compensateDebit(req.sourceAccountId(), req.amount(), ctx.getIdempotencyKey()))
@@ -38,6 +39,13 @@ public class TransferSagaConfig {
                         String creditRef = creditResult != null ? creditResult.creditId() : "N/A";
                         return ledgerService.recordEntry(debitRef, creditRef, req.amount(), req.currency());
                     })
+                    .compensate((ctx, req) -> {
+                        DebitService.DebitResult debitResult = ctx.getStepResult("debit-step", DebitService.DebitResult.class);
+                        CreditService.CreditResult creditResult = ctx.getStepResult("credit-step", CreditService.CreditResult.class);
+                        String debitRef = debitResult != null ? debitResult.debitId() : "N/A";
+                        String creditRef = creditResult != null ? creditResult.creditId() : "N/A";
+                        ledgerService.compensateLedger(debitRef, creditRef, req.amount(), req.currency());
+                    })
                 .onCompletion((ctx, req) -> new TransferResponseDto(
                         ctx.getSagaId(),
                         "tx_" + ctx.getIdempotencyKey(),
@@ -50,4 +58,3 @@ public class TransferSagaConfig {
                 .build();
     }
 }
-

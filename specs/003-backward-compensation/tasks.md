@@ -16,9 +16,9 @@
 
 **Purpose**: Database migration and foundational entity model extensions
 
-- [ ] T001 Create Flyway migration script adding fencing_token and indexes in `src/main/resources/db/migration/V2__add_fencing_token_to_saga_steps.sql`
-- [ ] T002 [P] Update `SagaStep.java` entity to map `fencing_token` with getter/setter in `src/main/java/io/deltaflow/saga/domain/SagaStep.java`
-- [ ] T003 [P] Extend `SagaState.java` and `SagaStepState.java` sealed interfaces and record patterns with `Compensated` and `Compensating` in `src/main/java/io/deltaflow/saga/domain/SagaState.java` and `src/main/java/io/deltaflow/saga/domain/SagaStepState.java`
+- [x] T001 Create Flyway migration script adding fencing_token and indexes in `src/main/resources/db/migration/V3__add_fencing_token_to_saga_steps.sql`
+- [x] T002 [P] Update `SagaStep.java` entity to map `fencing_token` with getter/setter in `src/main/java/io/deltaflow/saga/domain/SagaStep.java`
+- [x] T003 [P] Extend `SagaState.java` and `SagaStepState.java` sealed interfaces and record patterns with `Compensated` and `Compensating` in `src/main/java/io/deltaflow/saga/domain/SagaState.java` and `src/main/java/io/deltaflow/saga/domain/SagaStepState.java`
 
 ---
 
@@ -28,9 +28,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Update `SagaCoordinator.java` state machine switch dispatchers with exhaustive pattern-matching for `Compensating` and `Compensated` states in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T005 [P] Extend `SagaJournalStore.java` with WAL transaction methods for step compensation (`recordStepCompensating`, `recordStepCompensated`, `startSagaCompensation`, `completeSagaCompensation`) and audit logging in `src/main/java/io/deltaflow/saga/service/SagaJournalStore.java`
-- [ ] T006 [P] Add query for expired in-flight sagas using pessimistic locking (`findExpiredInFlightForUpdate`) in `src/main/java/io/deltaflow/saga/repository/SagaInstanceRepository.java`
+- [x] T004 Update `SagaCoordinator.java` state machine switch dispatchers with exhaustive pattern-matching for `Compensating` and `Compensated` states in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T005 [P] Extend `SagaJournalStore.java` with WAL transaction methods for step compensation (`recordStepCompensating`, `recordStepCompensated`, `startSagaCompensation`, `completeSagaCompensation`) and audit logging in `src/main/java/io/deltaflow/saga/service/SagaJournalStore.java`
+- [x] T006 [P] Add query for expired in-flight sagas using pessimistic locking (`findExpiredInFlightForUpdate`) in `src/main/java/io/deltaflow/saga/repository/SagaInstanceRepository.java`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -46,15 +46,15 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T007 [P] [US1] Integration test verifying automatic backward compensation and debit refund on credit failure in `src/test/java/io/deltaflow/saga/integration/SagaBackwardCompensationIntegrationTest.java`
+- [x] T007 [P] [US1] Integration test verifying automatic backward compensation and debit refund on credit failure in `src/test/java/io/deltaflow/saga/integration/SagaBackwardCompensationIntegrationTest.java`
 
 ### Implementation for User Story 1
 
-- [ ] T008 [P] [US1] Implement refund/compensation methods in demo services (`DebitService.refundDebit`, `CreditService.reverseCredit`, `LedgerService.voidJournalEntry`) in `src/main/java/io/deltaflow/saga/demo/service/DebitService.java`, `src/main/java/io/deltaflow/saga/demo/service/CreditService.java`, and `src/main/java/io/deltaflow/saga/demo/service/LedgerService.java`
-- [ ] T009 [US1] Wire compensation handlers into demo pipeline definition in `src/main/java/io/deltaflow/saga/demo/TransferSagaConfig.java`
-- [ ] T010 [US1] Implement reverse rollback loop in `SagaCoordinator.compensateSaga` executing completed steps from `stepIndex - 1` down to 0 with WAL persistence in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T011 [US1] Update `TransferController.java` to return HTTP 422 with structured compensation response when saga completes compensation in `src/main/java/io/deltaflow/saga/api/TransferController.java`
-- [ ] T012 [US1] Update `IdempotencyCoordinator` terminal record persistence on compensation so client retries receive cached 422 response in `src/main/java/io/deltaflow/saga/api/TransferController.java`
+- [x] T008 [P] [US1] Implement refund/compensation methods in demo services (`DebitService.refundDebit`, `CreditService.reverseCredit`, `LedgerService.voidJournalEntry`) in `src/main/java/io/deltaflow/saga/demo/service/DebitService.java`, `src/main/java/io/deltaflow/saga/demo/service/CreditService.java`, and `src/main/java/io/deltaflow/saga/demo/service/LedgerService.java`
+- [x] T009 [US1] Wire compensation handlers into demo pipeline definition in `src/main/java/io/deltaflow/saga/demo/TransferSagaConfig.java`
+- [x] T010 [US1] Implement reverse rollback loop in `SagaCoordinator.compensateSaga` executing completed steps from `stepIndex - 1` down to 0 with WAL persistence in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T011 [US1] Update `TransferController.java` to return HTTP 422 with structured compensation response when saga completes compensation in `src/main/java/io/deltaflow/saga/api/TransferController.java`
+- [x] T012 [US1] Update `IdempotencyCoordinator` terminal record persistence on compensation so client retries receive cached 422 response in `src/main/java/io/deltaflow/saga/api/TransferController.java`
 
 **Checkpoint**: User Story 1 is fully functional and independently verified (MVP).
 
@@ -68,13 +68,13 @@
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T013 [P] [US2] Integration test verifying crash recovery scanner claims expired leases and settles orphaned sagas in `src/test/java/io/deltaflow/saga/integration/SagaCrashRecoveryIntegrationTest.java`
+- [x] T013 [P] [US2] Integration test verifying crash recovery scanner claims expired leases and settles orphaned sagas in `src/test/java/io/deltaflow/saga/integration/SagaCrashRecoveryIntegrationTest.java`
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Implement `SagaRecoveryScanner` scheduled daemon with `@Scheduled` and `ApplicationReadyEvent` listener in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
-- [ ] T015 [US2] Implement recovery logic claiming expired instances via `SagaInstanceRepository.findExpiredInFlightForUpdate` and delegating to `SagaCoordinator.recoverSaga` in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
-- [ ] T016 [US2] Emit structured audit log events `RECOVERY_CLAIMED` and `RECOVERY_COMPLETED` with recovery worker ID in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
+- [x] T014 [US2] Implement `SagaRecoveryScanner` scheduled daemon with `@Scheduled` and `ApplicationReadyEvent` listener in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
+- [x] T015 [US2] Implement recovery logic claiming expired instances via `SagaInstanceRepository.findExpiredInFlightForUpdate` and delegating to `SagaCoordinator.recoverSaga` in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
+- [x] T016 [US2] Emit structured audit log events `RECOVERY_CLAIMED` and `RECOVERY_COMPLETED` with recovery worker ID in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java`
 
 **Checkpoint**: User Stories 1 AND 2 both work independently and handle both online failure and offline crash scenarios.
 
@@ -88,12 +88,12 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T017 [P] [US3] Integration test verifying stale fencing token rejection and zombie protection in `src/test/java/io/deltaflow/saga/integration/SagaZombieFencingIntegrationTest.java`
+- [x] T017 [P] [US3] Integration test verifying stale fencing token rejection and zombie protection in `src/test/java/io/deltaflow/saga/integration/SagaZombieFencingIntegrationTest.java`
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Implement monotonic token increment and validation logic in `SagaJournalStore` and `SagaCoordinator` in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T019 [US3] Add validation rejecting state updates if current step status is `COMPENSATING` or `COMPENSATED` and emit `ZOMBIE_STEP_REJECTED` audit event in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T018 [US3] Implement monotonic token increment and validation logic in `SagaJournalStore` and `SagaCoordinator` in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T019 [US3] Add validation rejecting state updates if current step status is `COMPENSATING` or `COMPENSATED` and emit `ZOMBIE_STEP_REJECTED` audit event in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
 
 **Checkpoint**: Sagas are zombie-proofed against delayed responses.
 
@@ -107,11 +107,11 @@
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T020 [P] [US4] Unit tests for declarative compensation registration in `src/test/java/io/deltaflow/saga/builder/SagaBuilderCompensationTest.java`
+- [x] T020 [P] [US4] Unit tests for declarative compensation registration in `src/test/java/io/deltaflow/saga/builder/SagaBuilderCompensationTest.java`
 
 ### Implementation for User Story 4
 
-- [ ] T021 [US4] Verify and ensure `SagaBuilder` propagates `SagaExecutionContext` with forward step results into `compensation.accept(context, input)` in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
+- [x] T021 [US4] Verify and ensure `SagaBuilder` propagates `SagaExecutionContext` with forward step results into `compensation.accept(context, input)` in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
 
 ---
 
@@ -119,9 +119,9 @@
 
 **Purpose**: System inspection endpoints and end-to-end regression verification
 
-- [ ] T022 [P] Update `SagaInspectorController.java` to expose step fencing tokens and compensated status in `src/main/java/io/deltaflow/saga/api/SagaInspectorController.java`
-- [ ] T023 Run full quickstart validation scenarios from `specs/003-backward-compensation/quickstart.md`
-- [ ] T024 Run full test suite `mvn test -B` with Testcontainers verifying all 16 existing tests plus new Milestone 3 tests pass
+- [x] T022 [P] Update `SagaInspectorController.java` to expose step fencing tokens and compensated status in `src/main/java/io/deltaflow/saga/api/SagaInspectorController.java`
+- [x] T023 Run full quickstart validation scenarios from `specs/003-backward-compensation/quickstart.md`
+- [x] T024 Run full test suite `mvn test -B` with Testcontainers verifying all 16 existing tests plus new Milestone 3 tests pass
 
 ---
 

@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 
 @Service
@@ -71,6 +73,8 @@ public class SagaJournalStore {
                 .orElseGet(() -> new SagaStep(UUID.randomUUID(), sagaId, stepName, stepIndex, "EXECUTING"));
 
         step.setStatus("EXECUTING");
+        step.setFencingToken(step.getFencingToken() + 1);
+        step.setLeaseExpiresAt(Instant.now().plus(Duration.ofSeconds(5)));
         step.setRequestPayload(toJsonb(requestPayload, "request"));
         SagaStep savedStep = sagaStepRepository.save(step);
 
@@ -78,6 +82,7 @@ public class SagaJournalStore {
         details.put("sagaId", sagaId.toString());
         details.put("stepIndex", stepIndex);
         details.put("stepName", stepName);
+        details.put("fencingToken", savedStep.getFencingToken());
         auditLogger.logEvent("STEP_EXECUTING", instance.getTenantId(), instance.getIdempotencyKey(), details);
 
         return savedStep;
@@ -101,6 +106,7 @@ public class SagaJournalStore {
             details.put("sagaId", sagaId.toString());
             details.put("stepIndex", stepIndex);
             details.put("stepName", savedStep.getStepName());
+            details.put("fencingToken", savedStep.getFencingToken());
             auditLogger.logEvent("STEP_COMPLETED", instance.getTenantId(), instance.getIdempotencyKey(), details);
         });
 
@@ -121,9 +127,6 @@ public class SagaJournalStore {
         SagaStep savedStep = sagaStepRepository.save(step);
 
         sagaInstanceRepository.findById(sagaId).ifPresent(instance -> {
-            instance.setStatus("FAILED");
-            sagaInstanceRepository.save(instance);
-
             Map<String, Object> details = new HashMap<>();
             details.put("sagaId", sagaId.toString());
             details.put("stepIndex", stepIndex);
@@ -133,6 +136,81 @@ public class SagaJournalStore {
         });
 
         return savedStep;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaInstance startSagaCompensation(UUID sagaId, int fromStepIndex, String cause) {
+        SagaInstance instance = sagaInstanceRepository.findById(sagaId)
+                .orElseThrow(() -> new IllegalStateException("Saga instance not found: " + sagaId));
+
+        instance.setStatus("COMPENSATING");
+        instance.setCurrentStep(fromStepIndex);
+        SagaInstance saved = sagaInstanceRepository.save(instance);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        details.put("fromStepIndex", fromStepIndex);
+        details.put("cause", cause != null ? cause : "");
+        auditLogger.logEvent("SAGA_COMPENSATING", saved.getTenantId(), saved.getIdempotencyKey(), details);
+
+        return saved;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaStep recordStepCompensating(UUID sagaId, int stepIndex) {
+        SagaStep step = sagaStepRepository.findBySagaIdAndStepIndex(sagaId, stepIndex)
+                .orElseThrow(() -> new IllegalStateException("Saga step not found for saga: " + sagaId + " and index: " + stepIndex));
+
+        step.setStatus("COMPENSATING");
+        SagaStep savedStep = sagaStepRepository.save(step);
+
+        sagaInstanceRepository.findById(sagaId).ifPresent(instance -> {
+            Map<String, Object> details = new HashMap<>();
+            details.put("sagaId", sagaId.toString());
+            details.put("stepIndex", stepIndex);
+            details.put("stepName", savedStep.getStepName());
+            auditLogger.logEvent("STEP_COMPENSATING", instance.getTenantId(), instance.getIdempotencyKey(), details);
+        });
+
+        return savedStep;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaStep recordStepCompensated(UUID sagaId, int stepIndex, String compensationPayload) {
+        SagaStep step = sagaStepRepository.findBySagaIdAndStepIndex(sagaId, stepIndex)
+                .orElseThrow(() -> new IllegalStateException("Saga step not found for saga: " + sagaId + " and index: " + stepIndex));
+
+        step.setStatus("COMPENSATED");
+        if (compensationPayload != null && !compensationPayload.isBlank()) {
+            step.setResponsePayload(toJsonb(compensationPayload, "compensation"));
+        }
+        SagaStep savedStep = sagaStepRepository.save(step);
+
+        sagaInstanceRepository.findById(sagaId).ifPresent(instance -> {
+            Map<String, Object> details = new HashMap<>();
+            details.put("sagaId", sagaId.toString());
+            details.put("stepIndex", stepIndex);
+            details.put("stepName", savedStep.getStepName());
+            auditLogger.logEvent("STEP_COMPENSATED", instance.getTenantId(), instance.getIdempotencyKey(), details);
+        });
+
+        return savedStep;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaInstance completeSagaCompensation(UUID sagaId, String resultPayload) {
+        SagaInstance instance = sagaInstanceRepository.findById(sagaId)
+                .orElseThrow(() -> new IllegalStateException("Saga instance not found: " + sagaId));
+
+        instance.setStatus("COMPENSATED");
+        instance.setResultPayload(toJsonb(resultPayload, "compensationResult"));
+        SagaInstance saved = sagaInstanceRepository.save(instance);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        auditLogger.logEvent("SAGA_COMPENSATED", saved.getTenantId(), saved.getIdempotencyKey(), details);
+
+        return saved;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -168,6 +246,16 @@ public class SagaJournalStore {
         return saved;
     }
 
+    public void logZombieRejected(UUID sagaId, int stepIndex, String stepName, long staleToken, long activeToken, String tenantId, String idempotencyKey) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        details.put("stepIndex", stepIndex);
+        details.put("stepName", stepName);
+        details.put("staleToken", staleToken);
+        details.put("activeToken", activeToken);
+        auditLogger.logEvent("ZOMBIE_STEP_REJECTED", tenantId, idempotencyKey, details);
+    }
+
     private String toJsonb(String value, String defaultKey) {
         if (value == null || value.isBlank()) {
             return null;
@@ -198,4 +286,3 @@ public class SagaJournalStore {
         return sagaStepRepository.findBySagaIdOrderByStepIndexAsc(sagaId);
     }
 }
-

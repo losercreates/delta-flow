@@ -12,6 +12,7 @@ import java.util.function.BiFunction;
 public class SagaBuilder<I, R> {
 
     private final String name;
+    private Class<I> inputType;
     private final List<SagaStepDefinition<I>> steps = new ArrayList<>();
     private String currentStepName;
     private BiFunction<SagaExecutionContext, I, ?> currentAction;
@@ -27,6 +28,11 @@ public class SagaBuilder<I, R> {
 
     public static <I, R> SagaBuilder<I, R> named(String name) {
         return new SagaBuilder<>(name);
+    }
+
+    public SagaBuilder<I, R> inputType(Class<I> inputType) {
+        this.inputType = inputType;
+        return this;
     }
 
     public SagaBuilder<I, R> step(String stepName) {
@@ -64,7 +70,7 @@ public class SagaBuilder<I, R> {
         if (steps.isEmpty()) {
             throw new IllegalStateException("Saga must contain at least one step");
         }
-        return new SagaDefinition<>(name, Collections.unmodifiableList(new ArrayList<>(steps)), completionHandler);
+        return new SagaDefinition<>(name, Collections.unmodifiableList(new ArrayList<>(steps)), completionHandler, inputType);
     }
 
     private void flushCurrentStep() {
