@@ -1,0 +1,101 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Transactional Outbox Inspection API
+  version: 1.0.0
+  description: API endpoints for inspecting, monitoring, and auditing transactional outbox events.
+paths:
+  /api/v1/outbox:
+    get:
+      summary: List Outbox Events
+      description: Retrieves a paginated or filtered list of outbox events.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, IN_FLIGHT, PUBLISHED, DEAD_LETTER]
+          description: Filter events by lifecycle status
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Ordered list of outbox events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OutboxEventDto'
+
+  /api/v1/outbox/{eventId}:
+    get:
+      summary: Get Outbox Event Details
+      description: Retrieves the exact state, payload, and audit info for an outbox event.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Outbox event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxEventDto'
+        '404':
+          description: Outbox event not found
+
+components:
+  schemas:
+    OutboxEventDto:
+      type: object
+      required:
+        - eventId
+        - aggregateType
+        - aggregateId
+        - eventType
+        - payload
+        - status
+        - retryCount
+        - createdAt
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        aggregateType:
+          type: string
+          example: "SAGA_INSTANCE"
+        aggregateId:
+          type: string
+          example: "7d03e7b9-a653-4aeb-a413-911501a24ef0"
+        eventType:
+          type: string
+          example: "TRANSFER_COMPLETED"
+        payload:
+          type: string
+          description: Serialized JSON payload of the domain event
+        status:
+          type: string
+          enum: [PENDING, IN_FLIGHT, PUBLISHED, DEAD_LETTER]
+        retryCount:
+          type: integer
+          example: 0
+        errorDetails:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+
