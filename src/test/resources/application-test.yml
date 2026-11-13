@@ -14,6 +14,8 @@ spring:
       port: 6379
 
 deltaflow:
+  outbox:
+    enabled: false
   idempotency:
     enabled: true
     lease-ttl: 3s

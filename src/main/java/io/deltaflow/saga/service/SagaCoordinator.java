@@ -2,6 +2,7 @@ package io.deltaflow.saga.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.deltaflow.saga.builder.ParallelBranchDefinition;
 import io.deltaflow.saga.builder.SagaDefinition;
 import io.deltaflow.saga.builder.SagaStepDefinition;
 import io.deltaflow.saga.domain.SagaExecutionContext;
@@ -9,12 +10,16 @@ import io.deltaflow.saga.domain.SagaInstance;
 import io.deltaflow.saga.domain.SagaState;
 import io.deltaflow.saga.domain.SagaStep;
 import io.deltaflow.saga.domain.SagaStepState;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.StructuredTaskScope;
+import java.util.function.Supplier;
 
 @Service
 public class SagaCoordinator {
@@ -23,6 +28,8 @@ public class SagaCoordinator {
 
     private final SagaJournalStore journalStore;
     private final ObjectMapper objectMapper;
+    private final io.deltaflow.outbox.service.OutboxService outboxService;
+    private final io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry;
 
     public sealed interface SagaEvent permits
             SagaEvent.StartExecution,
@@ -50,9 +57,29 @@ public class SagaCoordinator {
         record Compensate() implements StepEvent {}
     }
 
-    public SagaCoordinator(SagaJournalStore journalStore, ObjectMapper objectMapper) {
+    @Autowired
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry
+    ) {
         this.journalStore = journalStore;
         this.objectMapper = objectMapper;
+        this.outboxService = outboxService;
+        this.resiliencePolicyRegistry = resiliencePolicyRegistry;
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService
+    ) {
+        this(journalStore, objectMapper, outboxService, null);
+    }
+
+    public SagaCoordinator(SagaJournalStore journalStore, ObjectMapper objectMapper) {
+        this(journalStore, objectMapper, null, null);
     }
 
     public <I, R> R executeSaga(
@@ -68,6 +95,9 @@ public class SagaCoordinator {
 
         String inputJson = serialize(input);
         journalStore.createSagaInstance(sagaId, tenantId, idempotencyKey, definition.getName(), inputJson);
+        if (outboxService != null) {
+            outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_STARTED", inputJson, tenantId, idempotencyKey);
+        }
 
         SagaExecutionContext context = new SagaExecutionContext(sagaId, tenantId, idempotencyKey);
         List<SagaStepDefinition<I>> steps = definition.getSteps();
@@ -81,14 +111,25 @@ public class SagaCoordinator {
 
             Object stepResult;
             try {
-                stepResult = step.getAction().apply(context, input);
+                if (step.isParallel()) {
+                    stepResult = executeParallelStep(step, context, input, sagaId, stepIndex);
+                } else {
+                    stepResult = executeStepAction(step, context, input);
+                }
+            } catch (CallNotPermittedException e) {
+                log.warn("Saga [{}] step {} [{}] fast-failed due to open circuit breaker: {}",
+                        sagaId, stepIndex, step.getName(), e.getMessage());
+                String errorMsg = "Circuit breaker open: " + e.getMessage();
+                journalStore.recordStepFailure(sagaId, stepIndex, errorMsg);
+                compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
+                throw e;
             } catch (Exception e) {
                 log.error("Saga [{}] failed at step {} [{}]: {}", sagaId, stepIndex, step.getName(), e.getMessage());
                 String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 journalStore.recordStepFailure(sagaId, stepIndex, errorMsg);
 
                 // Backward compensation for all previously completed steps in reverse order
-                compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg);
+                compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
 
                 if (e instanceof RuntimeException re) {
                     throw re;
@@ -101,6 +142,9 @@ public class SagaCoordinator {
 
             String stepResponsePayload = serialize(stepResult);
             journalStore.recordStepCompletion(sagaId, stepIndex, stepResponsePayload);
+            if (outboxService != null) {
+                outboxService.recordEvent("SAGA_STEP", sagaId + ":" + stepIndex, "STEP_COMPLETED", stepResponsePayload, tenantId, idempotencyKey);
+            }
             context = context.withStepResult(step.getName(), stepResult);
             log.info("Saga [{}]: Completed step {} [{}]", sagaId, stepIndex, step.getName());
         }
@@ -110,9 +154,83 @@ public class SagaCoordinator {
                 : null;
         String finalResultJson = serialize(finalResult);
         journalStore.completeSaga(sagaId, finalResultJson);
+        if (outboxService != null) {
+            outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_COMPLETED", finalResultJson, tenantId, idempotencyKey);
+        }
         log.info("Saga [{}] completed successfully", sagaId);
 
         return finalResult;
+    }
+
+    private <I> Object executeStepAction(SagaStepDefinition<I> step, SagaExecutionContext context, I input) {
+        Supplier<Object> supplier = () -> step.getAction().apply(context, input);
+        if (resiliencePolicyRegistry != null &&
+                (step.getCircuitBreakerName() != null || step.getRetryName() != null)) {
+            supplier = resiliencePolicyRegistry.decorateSupplier(
+                    step.getCircuitBreakerName(),
+                    step.getRetryName(),
+                    supplier
+            );
+        }
+        return supplier.get();
+    }
+
+    private <I> Map<String, Object> executeParallelStep(
+            SagaStepDefinition<I> step,
+            SagaExecutionContext context,
+            I input,
+            UUID sagaId,
+            int stepIndex
+    ) throws Exception {
+        List<ParallelBranchDefinition<I>> branches = step.getParallelBranches();
+        Map<String, StructuredTaskScope.Subtask<Object>> branchSubtasks = new LinkedHashMap<>();
+        Map<String, Object> branchOutputs = new LinkedHashMap<>();
+
+        try (var scope = new StructuredTaskScope.ShutdownOnFailure("saga-" + sagaId + "-step-" + stepIndex,
+                Thread.ofVirtual().name("saga-" + sagaId + "-branch-", 0).factory())) {
+
+            for (ParallelBranchDefinition<I> branch : branches) {
+                log.info("Saga [{}]: Forking parallel branch [{}] on Virtual Thread", sagaId, branch.getBranchName());
+                StructuredTaskScope.Subtask<Object> subtask = scope.fork(() -> branch.getAction().apply(context, input));
+                branchSubtasks.put(branch.getBranchName(), subtask);
+            }
+
+            scope.join();
+
+            // Check if failure occurred
+            if (scope.exception().isPresent()) {
+                Throwable failure = scope.exception().get();
+                log.error("Saga [{}]: Parallel step [{}] encountered branch failure: {}",
+                        sagaId, step.getName(), failure.getMessage());
+
+                // Compensate any successfully completed branches within this parallel step in reverse order
+                for (int b = branches.size() - 1; b >= 0; b--) {
+                    ParallelBranchDefinition<I> branch = branches.get(b);
+                    StructuredTaskScope.Subtask<Object> subtask = branchSubtasks.get(branch.getBranchName());
+                    if (subtask != null && subtask.state() == StructuredTaskScope.Subtask.State.SUCCESS) {
+                        try {
+                            log.info("Saga [{}]: Compensating completed parallel branch [{}]", sagaId, branch.getBranchName());
+                            branch.getCompensation().accept(context, input);
+                        } catch (Exception compEx) {
+                            log.error("Saga [{}]: Branch compensation failed for [{}]: {}",
+                                    sagaId, branch.getBranchName(), compEx.getMessage());
+                        }
+                    }
+                }
+
+                if (failure instanceof Exception ex) {
+                    throw ex;
+                }
+                throw new RuntimeException("Parallel branch failed", failure);
+            }
+
+            // All succeeded
+            for (Map.Entry<String, StructuredTaskScope.Subtask<Object>> entry : branchSubtasks.entrySet()) {
+                branchOutputs.put(entry.getKey(), entry.getValue().get());
+            }
+        }
+
+        return branchOutputs;
     }
 
     public <I, R> void compensateSaga(
@@ -124,6 +242,20 @@ public class SagaCoordinator {
             SagaExecutionContext context,
             int failedStepIndex,
             String failureReason
+    ) {
+        compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, failedStepIndex, failureReason, null);
+    }
+
+    public <I, R> void compensateSaga(
+            SagaDefinition<I, R> definition,
+            UUID sagaId,
+            String tenantId,
+            String idempotencyKey,
+            I input,
+            SagaExecutionContext context,
+            int failedStepIndex,
+            String failureReason,
+            Throwable cause
     ) {
         log.warn("Saga [{}]: Initiating backward compensation from failed step {} ({})", sagaId, failedStepIndex, failureReason);
         journalStore.startSagaCompensation(sagaId, failedStepIndex, failureReason);
@@ -138,7 +270,15 @@ public class SagaCoordinator {
             journalStore.recordStepCompensating(sagaId, i);
 
             try {
-                if (step.getCompensation() != null) {
+                if (step.isParallel()) {
+                    List<ParallelBranchDefinition<I>> branches = step.getParallelBranches();
+                    for (int b = branches.size() - 1; b >= 0; b--) {
+                        ParallelBranchDefinition<I> branch = branches.get(b);
+                        if (branch.getCompensation() != null) {
+                            branch.getCompensation().accept(context, input);
+                        }
+                    }
+                } else if (step.getCompensation() != null) {
                     step.getCompensation().accept(context, input);
                 }
                 journalStore.recordStepCompensated(sagaId, i, "{\"status\":\"COMPENSATED\"}");
@@ -162,6 +302,9 @@ public class SagaCoordinator {
 
         String resultJson = serialize(compensationResult);
         journalStore.completeSagaCompensation(sagaId, resultJson);
+        if (outboxService != null) {
+            outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_COMPENSATED", resultJson, tenantId, idempotencyKey);
+        }
         log.info("Saga [{}]: Completed backward compensation successfully", sagaId);
 
         throw new io.deltaflow.saga.exception.SagaCompensatedException(
@@ -170,7 +313,7 @@ public class SagaCoordinator {
                 failedStepName,
                 failureReason,
                 compensatedStepNames,
-                null
+                cause
         );
     }
 
@@ -180,7 +323,7 @@ public class SagaCoordinator {
 
         if ("COMPENSATING".equals(instance.getStatus()) || "COMPENSATED".equals(instance.getStatus())) {
             journalStore.logZombieRejected(sagaId, stepIndex, "step-" + stepIndex, responseToken, -1L, instance.getTenantId(), instance.getIdempotencyKey());
-            throw new IllegalStateException("ZOMBIE_STEP_REJECTED: Saga is already in status " + instance.getStatus());
+            throw new IllegalStateException("ZOMBIE_STEP_REJECTED: Saga " + sagaId + " is already in state " + instance.getStatus());
         }
 
         SagaStep step = journalStore.getStepsForSaga(sagaId).stream()

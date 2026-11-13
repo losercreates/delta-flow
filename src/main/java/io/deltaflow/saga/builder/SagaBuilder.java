@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 public class SagaBuilder<I, R> {
 
@@ -17,7 +18,26 @@ public class SagaBuilder<I, R> {
     private String currentStepName;
     private BiFunction<SagaExecutionContext, I, ?> currentAction;
     private BiConsumer<SagaExecutionContext, I> currentCompensation;
+    private String currentCircuitBreakerName;
+    private String currentRetryName;
     private BiFunction<SagaExecutionContext, I, R> completionHandler;
+
+    public static class ParallelStepBuilder<I> {
+        private final List<ParallelBranchDefinition<I>> branches = new ArrayList<>();
+
+        public ParallelStepBuilder<I> branch(String branchName, BiFunction<SagaExecutionContext, I, ?> action) {
+            return branch(branchName, action, null);
+        }
+
+        public ParallelStepBuilder<I> branch(String branchName, BiFunction<SagaExecutionContext, I, ?> action, BiConsumer<SagaExecutionContext, I> compensation) {
+            branches.add(new ParallelBranchDefinition<>(branchName, action, compensation));
+            return this;
+        }
+
+        public List<ParallelBranchDefinition<I>> getBranches() {
+            return Collections.unmodifiableList(branches);
+        }
+    }
 
     private SagaBuilder(String name) {
         if (name == null || name.isBlank()) {
@@ -60,6 +80,40 @@ public class SagaBuilder<I, R> {
         return this;
     }
 
+    public SagaBuilder<I, R> withCircuitBreaker(String name) {
+        if (currentStepName == null) {
+            throw new IllegalStateException("Cannot configure circuit breaker without an active step");
+        }
+        this.currentCircuitBreakerName = name;
+        return this;
+    }
+
+    public SagaBuilder<I, R> withRetry(String name) {
+        if (currentStepName == null) {
+            throw new IllegalStateException("Cannot configure retry without an active step");
+        }
+        this.currentRetryName = name;
+        return this;
+    }
+
+    public SagaBuilder<I, R> parallelStep(String stepName, Consumer<ParallelStepBuilder<I>> configurer) {
+        if (stepName == null || stepName.isBlank()) {
+            throw new IllegalArgumentException("Parallel step name must not be null or blank");
+        }
+        Objects.requireNonNull(configurer, "Configurer must not be null");
+        flushCurrentStep();
+
+        ParallelStepBuilder<I> builder = new ParallelStepBuilder<>();
+        configurer.accept(builder);
+        List<ParallelBranchDefinition<I>> branches = builder.getBranches();
+        if (branches.isEmpty()) {
+            throw new IllegalStateException("Parallel step '" + stepName + "' must define at least one branch");
+        }
+
+        steps.add(new SagaStepDefinition<>(stepName, (ctx, input) -> null, null, null, null, branches));
+        return this;
+    }
+
     public SagaBuilder<I, R> onCompletion(BiFunction<SagaExecutionContext, I, R> handler) {
         this.completionHandler = handler;
         return this;
@@ -78,11 +132,12 @@ public class SagaBuilder<I, R> {
             if (currentAction == null) {
                 throw new IllegalStateException("Step '" + currentStepName + "' must define an action");
             }
-            steps.add(new SagaStepDefinition<>(currentStepName, currentAction, currentCompensation));
+            steps.add(new SagaStepDefinition<>(currentStepName, currentAction, currentCompensation, currentCircuitBreakerName, currentRetryName, List.of()));
             currentStepName = null;
             currentAction = null;
             currentCompensation = null;
+            currentCircuitBreakerName = null;
+            currentRetryName = null;
         }
     }
 }
-

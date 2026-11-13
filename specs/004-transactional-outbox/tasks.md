@@ -16,9 +16,9 @@
 
 **Purpose**: Dependency management and relational schema migrations
 
-- [ ] T001 Add `resilience4j-spring-boot3` (version 2.2.0) dependency to `pom.xml`
-- [ ] T002 [P] Create Flyway migration script adding `outbox_events` table and indexes in `src/main/resources/db/migration/V4__create_outbox_events_table.sql`
-- [ ] T003 [P] Create `OutboxStatus.java` enum (`PENDING`, `IN_FLIGHT`, `PUBLISHED`, `DEAD_LETTER`) in `src/main/java/io/deltaflow/outbox/domain/OutboxStatus.java`
+- [x] T001 Add `resilience4j-spring-boot3` (version 2.2.0) dependency to `pom.xml`
+- [x] T002 [P] Create Flyway migration script adding `outbox_events` table and indexes in `src/main/resources/db/migration/V4__create_outbox_events_table.sql`
+- [x] T003 [P] Create `OutboxStatus.java` enum (`PENDING`, `IN_FLIGHT`, `PUBLISHED`, `DEAD_LETTER`) in `src/main/java/io/deltaflow/outbox/domain/OutboxStatus.java`
 
 ---
 
@@ -28,10 +28,10 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Create `OutboxEvent.java` entity mapping table `outbox_events` with columns `event_id UUID`, `aggregate_type VARCHAR(64) NOT NULL`, `aggregate_id VARCHAR(128) NOT NULL`, `event_type VARCHAR(64) NOT NULL`, `payload JSONB NOT NULL`, `status VARCHAR(32) NOT NULL DEFAULT 'PENDING'`, `retry_count INT NOT NULL DEFAULT 0`, `error_details TEXT`, `created_at TIMESTAMPTZ NOT NULL`, and `published_at TIMESTAMPTZ` in `src/main/java/io/deltaflow/outbox/domain/OutboxEvent.java`
-- [ ] T005 [P] Create `OutboxEventRepository.java` extending `JpaRepository` with pessimistic write lock query `findPendingForUpdate(limit)` using `-2` timeout hint (`SKIP LOCKED`) ordered by `created_at ASC` in `src/main/java/io/deltaflow/outbox/repository/OutboxEventRepository.java`
-- [ ] T006 [P] Create `DomainEventPublisher.java` interface defining `void publish(OutboxEvent event)` and a default in-memory publisher bean in `src/main/java/io/deltaflow/outbox/service/DomainEventPublisher.java`
-- [ ] T007 Create transactional `OutboxService.java` providing `recordEvent(String aggregateType, String aggregateId, String eventType, Object payload)` in `src/main/java/io/deltaflow/outbox/service/OutboxService.java`
+- [x] T004 Create `OutboxEvent.java` entity mapping table `outbox_events` with columns `event_id UUID`, `aggregate_type VARCHAR(64) NOT NULL`, `aggregate_id VARCHAR(128) NOT NULL`, `event_type VARCHAR(64) NOT NULL`, `payload JSONB NOT NULL`, `status VARCHAR(32) NOT NULL DEFAULT 'PENDING'`, `retry_count INT NOT NULL DEFAULT 0`, `error_details TEXT`, `created_at TIMESTAMPTZ NOT NULL`, and `published_at TIMESTAMPTZ` in `src/main/java/io/deltaflow/outbox/domain/OutboxEvent.java`
+- [x] T005 [P] Create `OutboxEventRepository.java` extending `JpaRepository` with pessimistic write lock query `findPendingForUpdate(limit)` using `-2` timeout hint (`SKIP LOCKED`) ordered by `created_at ASC` in `src/main/java/io/deltaflow/outbox/repository/OutboxEventRepository.java`
+- [x] T006 [P] Create `DomainEventPublisher.java` interface defining `void publish(OutboxEvent event)` and a default in-memory publisher bean in `src/main/java/io/deltaflow/outbox/service/DomainEventPublisher.java`
+- [x] T007 Create transactional `OutboxService.java` providing `recordEvent(String aggregateType, String aggregateId, String eventType, Object payload)` in `src/main/java/io/deltaflow/outbox/service/OutboxService.java`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -47,13 +47,13 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T008 [P] [US1] Integration test verifying atomic outbox persistence during saga execution and relay dispatch in `src/test/java/io/deltaflow/outbox/integration/OutboxPublishingIntegrationTest.java`
+- [x] T008 [P] [US1] Integration test verifying atomic outbox persistence during saga execution and relay dispatch in `src/test/java/io/deltaflow/outbox/integration/OutboxPublishingIntegrationTest.java`
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Implement `OutboxPublisher.java` scheduled daemon polling pending events with `findPendingForUpdate`, dispatching via `DomainEventPublisher`, and transitioning status to `PUBLISHED` with `published_at` timestamp in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
-- [ ] T010 [US1] Integrate `OutboxService` into `SagaCoordinator.java` to atomically record domain events (`SAGA_STARTED`, `STEP_COMPLETED`, `SAGA_COMPLETED`, `SAGA_COMPENSATED`) in the same database transaction as the saga WAL writes in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T011 [US1] Emit structured audit events `OUTBOX_RECORDED` and `OUTBOX_PUBLISHED` with correlation IDs and timestamps in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
+- [x] T009 [US1] Implement `OutboxPublisher.java` scheduled daemon polling pending events with `findPendingForUpdate`, dispatching via `DomainEventPublisher`, and transitioning status to `PUBLISHED` with `published_at` timestamp in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
+- [x] T010 [US1] Integrate `OutboxService` into `SagaCoordinator.java` to atomically record domain events (`SAGA_STARTED`, `STEP_COMPLETED`, `SAGA_COMPLETED`, `SAGA_COMPENSATED`) in the same database transaction as the saga WAL writes in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T011 [US1] Emit structured audit events `OUTBOX_RECORDED` and `OUTBOX_PUBLISHED` with correlation IDs and timestamps in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
 
 **Checkpoint**: User Story 1 is fully functional and independently verified (MVP delivered).
 
@@ -67,14 +67,14 @@
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 [P] [US2] Integration test verifying exponential backoff retries and circuit breaker transitions from `CLOSED` to `OPEN` in `src/test/java/io/deltaflow/resilience/integration/SagaResilienceIntegrationTest.java`
+- [x] T012 [P] [US2] Integration test verifying exponential backoff retries and circuit breaker transitions from `CLOSED` to `OPEN` in `src/test/java/io/deltaflow/resilience/integration/SagaResilienceIntegrationTest.java`
 
 ### Implementation for User Story 2
 
-- [ ] T013 [P] [US2] Create `ResilienceConfig.java` configuring `CircuitBreakerRegistry` and `RetryRegistry` with sliding window size (10), failure rate threshold (50%), wait duration in open (5s), and exponential backoff retry in `src/main/java/io/deltaflow/resilience/ResilienceConfig.java`
-- [ ] T014 [US2] Create `ResiliencePolicyRegistry.java` providing programmatic decoration methods for functional actions (`decorateSupplier`) in `src/main/java/io/deltaflow/resilience/ResiliencePolicyRegistry.java`
-- [ ] T015 [US2] Extend `SagaBuilder.java` and `SagaStepDefinition.java` to support `.withCircuitBreaker(String name)` and `.withRetry(String name)` on steps in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
-- [ ] T016 [US2] Update `SagaCoordinator.java` to execute step actions through registered resilience decorators, catching `CallNotPermittedException` to fail fast and trigger backward compensation in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T013 [P] [US2] Create `ResilienceConfig.java` configuring `CircuitBreakerRegistry` and `RetryRegistry` with sliding window size (10), failure rate threshold (50%), wait duration in open (5s), and exponential backoff retry in `src/main/java/io/deltaflow/resilience/ResilienceConfig.java`
+- [x] T014 [US2] Create `ResiliencePolicyRegistry.java` providing programmatic decoration methods for functional actions (`decorateSupplier`) in `src/main/java/io/deltaflow/resilience/ResiliencePolicyRegistry.java`
+- [x] T015 [US2] Extend `SagaBuilder.java` and `SagaStepDefinition.java` to support `.withCircuitBreaker(String name)` and `.withRetry(String name)` on steps in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
+- [x] T016 [US2] Update `SagaCoordinator.java` to execute step actions through registered resilience decorators, catching `CallNotPermittedException` to fail fast and trigger backward compensation in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
 
 **Checkpoint**: User Stories 1 AND 2 both work independently.
 
@@ -88,13 +88,13 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T017 [P] [US3] Integration test verifying parallel branch execution and automatic sibling cancellation on failure in `src/test/java/io/deltaflow/saga/integration/SagaStructuredConcurrencyIntegrationTest.java`
+- [x] T017 [P] [US3] Integration test verifying parallel branch execution and automatic sibling cancellation on failure in `src/test/java/io/deltaflow/saga/integration/SagaStructuredConcurrencyIntegrationTest.java`
 
 ### Implementation for User Story 3
 
-- [ ] T018 [P] [US3] Create `ParallelBranchDefinition.java` representing named branch actions and optional compensations in `src/main/java/io/deltaflow/saga/builder/ParallelBranchDefinition.java`
-- [ ] T019 [US3] Extend `SagaBuilder.java` with `.parallelStep(String stepName, Consumer<ParallelStepBuilder<I>> configurer)` in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
-- [ ] T020 [US3] Implement parallel branch execution in `SagaCoordinator.java` using Virtual Threads and `StructuredTaskScope.ShutdownOnFailure` to join subtasks, cancel on failure, and aggregate results in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T018 [P] [US3] Create `ParallelBranchDefinition.java` representing named branch actions and optional compensations in `src/main/java/io/deltaflow/saga/builder/ParallelBranchDefinition.java`
+- [x] T019 [US3] Extend `SagaBuilder.java` with `.parallelStep(String stepName, Consumer<ParallelStepBuilder<I>> configurer)` in `src/main/java/io/deltaflow/saga/builder/SagaBuilder.java`
+- [x] T020 [US3] Implement parallel branch execution in `SagaCoordinator.java` using Virtual Threads and `StructuredTaskScope.ShutdownOnFailure` to join subtasks, cancel on failure, and aggregate results in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
 
 **Checkpoint**: Parallel branches execute safely with strict structured lifecycle boundaries.
 
@@ -108,12 +108,12 @@
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T021 [P] [US4] Integration test verifying that unpublishable poison pill events transition to `DEAD_LETTER` after retry exhaustion without blocking other events in `src/test/java/io/deltaflow/outbox/integration/OutboxDeadLetterIntegrationTest.java`
+- [x] T021 [P] [US4] Integration test verifying that unpublishable poison pill events transition to `DEAD_LETTER` after retry exhaustion without blocking other events in `src/test/java/io/deltaflow/outbox/integration/OutboxDeadLetterIntegrationTest.java`
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Add retry increment and poison pill quarantine logic to `OutboxPublisher.java`, transitioning events to `DEAD_LETTER` when `retry_count >= max_retries` (default: 5) and recording error stack traces in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
-- [ ] T023 [US4] Emit structured audit event `OUTBOX_DEAD_LETTER` with event ID, aggregate ID, and error details in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
+- [x] T022 [US4] Add retry increment and poison pill quarantine logic to `OutboxPublisher.java`, transitioning events to `DEAD_LETTER` when `retry_count >= max_retries` (default: 5) and recording error stack traces in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
+- [x] T023 [US4] Emit structured audit event `OUTBOX_DEAD_LETTER` with event ID, aggregate ID, and error details in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java`
 
 **Checkpoint**: Outbox pipeline is immune to head-of-line blocking by poisoned events.
 
@@ -123,9 +123,9 @@
 
 **Purpose**: Outbox REST inspection endpoints and end-to-end regression verification
 
-- [ ] T024 [P] Create `OutboxEventDto.java` and `OutboxInspectorController.java` implementing `GET /api/v1/outbox` and `GET /api/v1/outbox/{eventId}` in `src/main/java/io/deltaflow/outbox/api/OutboxInspectorController.java` and `src/main/java/io/deltaflow/outbox/api/dto/OutboxEventDto.java`
-- [ ] T025 Run quickstart validation scenarios from `specs/004-transactional-outbox/quickstart.md`
-- [ ] T026 Run full test suite `mvn test -B` with Testcontainers verifying all 22 existing tests plus new Milestone 4 tests pass
+- [x] T024 [P] Create `OutboxEventDto.java` and `OutboxInspectorController.java` implementing `GET /api/v1/outbox` and `GET /api/v1/outbox/{eventId}` in `src/main/java/io/deltaflow/outbox/api/OutboxInspectorController.java` and `src/main/java/io/deltaflow/outbox/api/dto/OutboxEventDto.java`
+- [x] T025 Run quickstart validation scenarios from `specs/004-transactional-outbox/quickstart.md`
+- [x] T026 Run full test suite `mvn test -B` with Testcontainers verifying all 22 existing tests plus new Milestone 4 tests pass
 
 ---
 
