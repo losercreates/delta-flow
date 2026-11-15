@@ -1,0 +1,375 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Operator Management Dashboard API
+  version: 1.0.0
+  description: API endpoints for real-time saga DAG visualization, manual intervention, idempotency forensics, and operational telemetry.
+paths:
+  /api/v1/dashboard/sagas:
+    get:
+      summary: List Saga Instances
+      description: Retrieves a paginated list of saga instances with optional status and tenant filtering.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, EXECUTING, COMPLETED, COMPENSATING, COMPENSATED, FAILED]
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated saga list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SagaSummaryDto'
+
+  /api/v1/dashboard/sagas/{sagaId}/graph:
+    get:
+      summary: Get Saga Visual DAG Graph
+      description: Retrieves the graph projection of a saga instance with node and edge data for DAG rendering.
+      parameters:
+        - name: sagaId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Saga DAG structure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaGraphDto'
+        '404':
+          description: Saga not found
+
+  /api/v1/dashboard/sagas/{sagaId}/intervene:
+    post:
+      summary: Execute Operator Manual Intervention
+      description: Safely triggers a force-retry or force-compensate command on a stuck/halted saga instance.
+      parameters:
+        - name: sagaId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperatorInterventionRequest'
+      responses:
+        '200':
+          description: Intervention executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperatorInterventionResult'
+        '400':
+          description: Invalid request or missing justification
+        '404':
+          description: Saga not found
+        '409':
+          description: Conflict - Target saga is actively executing with a valid lease
+
+  /api/v1/dashboard/idempotency:
+    get:
+      summary: Forensic Search Idempotency Records
+      description: Audits and verifies idempotency keys, hash digests, and lock leases.
+      parameters:
+        - name: key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: payloadHash
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, PROCESSING, RESOLVED, FAILED]
+      responses:
+        '200':
+          description: Matching idempotency records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdempotencyForensicDto'
+
+  /api/v1/dashboard/telemetry:
+    get:
+      summary: System Telemetry Summary
+      description: Aggregated system metrics including active sagas, DLQ counts, and circuit breaker states.
+      responses:
+        '200':
+          description: Current telemetry summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetrySummaryDto'
+
+  /api/v1/dashboard/stream:
+    get:
+      summary: Real-Time Event Stream (SSE)
+      description: Server-Sent Events stream delivering live saga state changes, outbox events, and circuit breaker status updates.
+      responses:
+        '200':
+          description: Continuous text/event-stream of DashboardLiveEvent payloads
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+components:
+  schemas:
+    SagaSummaryDto:
+      type: object
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+        sagaType:
+          type: string
+        status:
+          type: string
+        tenantId:
+          type: string
+        idempotencyKey:
+          type: string
+        currentStep:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SagaGraphDto:
+      type: object
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+        sagaType:
+          type: string
+        status:
+          type: string
+        tenantId:
+          type: string
+        idempotencyKey:
+          type: string
+        payload:
+          type: string
+        currentStep:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SagaNodeDto'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/SagaEdgeDto'
+
+    SagaNodeDto:
+      type: object
+      properties:
+        id:
+          type: string
+        stepIndex:
+          type: integer
+        stepName:
+          type: string
+        status:
+          type: string
+        isParallel:
+          type: boolean
+        branchName:
+          type: string
+          nullable: true
+        fencingToken:
+          type: integer
+          format: int64
+          nullable: true
+        requestPayload:
+          type: string
+          nullable: true
+        responsePayload:
+          type: string
+          nullable: true
+        errorDetails:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    SagaEdgeDto:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        type:
+          type: string
+        animated:
+          type: boolean
+
+    OperatorInterventionRequest:
+      type: object
+      required:
+        - action
+        - operatorId
+        - justification
+      properties:
+        action:
+          type: string
+          enum: [FORCE_COMPENSATE, FORCE_RETRY]
+        stepIndex:
+          type: integer
+          nullable: true
+        operatorId:
+          type: string
+          minLength: 3
+        justification:
+          type: string
+          minLength: 10
+
+    OperatorInterventionResult:
+      type: object
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+        actionTaken:
+          type: string
+        previousStatus:
+          type: string
+        newStatus:
+          type: string
+        operatorId:
+          type: string
+        auditEventId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    IdempotencyForensicDto:
+      type: object
+      properties:
+        idempotencyKey:
+          type: string
+        tenantId:
+          type: string
+        status:
+          type: string
+        payloadHash:
+          type: string
+        cachedResponse:
+          type: string
+          nullable: true
+        statusCode:
+          type: integer
+          nullable: true
+        leaseExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        recoveryAttempts:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TelemetrySummaryDto:
+      type: object
+      properties:
+        activeSagas:
+          type: integer
+          format: int64
+        completedSagas:
+          type: integer
+          format: int64
+        compensatedSagas:
+          type: integer
+          format: int64
+        failedSagas:
+          type: integer
+          format: int64
+        pendingOutboxEvents:
+          type: integer
+          format: int64
+        deadLetterEvents:
+          type: integer
+          format: int64
+        circuitBreakers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CircuitBreakerStatusDto'
+
+    CircuitBreakerStatusDto:
+      type: object
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+          enum: [CLOSED, HALF_OPEN, OPEN]
+        failureRate:
+          type: number
+          format: float
+        bufferedCalls:
+          type: integer
