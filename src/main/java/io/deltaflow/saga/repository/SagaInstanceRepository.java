@@ -37,4 +37,18 @@ public interface SagaInstanceRepository extends JpaRepository<SagaInstance, UUID
         ORDER BY s.updatedAt ASC
     """)
     List<SagaInstance> findExpiredInFlightForUpdate(@Param("threshold") Instant threshold);
+
+    @Query("""
+        SELECT s FROM SagaInstance s
+        WHERE (:status IS NULL OR s.status = :status)
+          AND (:tenantId IS NULL OR s.tenantId = :tenantId)
+        ORDER BY s.createdAt DESC
+    """)
+    List<SagaInstance> searchSagas(
+            @Param("status") String status,
+            @Param("tenantId") String tenantId,
+            org.springframework.data.domain.Pageable pageable
+    );
+
+    long countByStatus(String status);
 }

@@ -30,6 +30,7 @@ public class SagaCoordinator {
     private final ObjectMapper objectMapper;
     private final io.deltaflow.outbox.service.OutboxService outboxService;
     private final io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry;
+    private final io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster;
 
     public sealed interface SagaEvent permits
             SagaEvent.StartExecution,
@@ -62,12 +63,23 @@ public class SagaCoordinator {
             SagaJournalStore journalStore,
             ObjectMapper objectMapper,
             io.deltaflow.outbox.service.OutboxService outboxService,
-            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster
     ) {
         this.journalStore = journalStore;
         this.objectMapper = objectMapper;
         this.outboxService = outboxService;
         this.resiliencePolicyRegistry = resiliencePolicyRegistry;
+        this.eventBroadcaster = eventBroadcaster;
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, null);
     }
 
     public SagaCoordinator(
@@ -98,6 +110,13 @@ public class SagaCoordinator {
         if (outboxService != null) {
             outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_STARTED", inputJson, tenantId, idempotencyKey);
         }
+        if (eventBroadcaster != null) {
+            eventBroadcaster.broadcast("SAGA_STARTED", sagaId, tenantId, Map.of(
+                    "sagaType", definition.getName(),
+                    "status", "EXECUTING",
+                    "idempotencyKey", idempotencyKey
+            ));
+        }
 
         SagaExecutionContext context = new SagaExecutionContext(sagaId, tenantId, idempotencyKey);
         List<SagaStepDefinition<I>> steps = definition.getSteps();
@@ -108,6 +127,13 @@ public class SagaCoordinator {
 
             // Write-Ahead Log: Persist intent BEFORE outbound execution
             SagaStep recordedStep = journalStore.recordStepIntent(sagaId, stepIndex, step.getName(), inputJson);
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                        "stepIndex", stepIndex,
+                        "stepName", step.getName(),
+                        "status", "EXECUTING"
+                ));
+            }
 
             Object stepResult;
             try {
@@ -121,12 +147,28 @@ public class SagaCoordinator {
                         sagaId, stepIndex, step.getName(), e.getMessage());
                 String errorMsg = "Circuit breaker open: " + e.getMessage();
                 journalStore.recordStepFailure(sagaId, stepIndex, errorMsg);
+                if (eventBroadcaster != null) {
+                    eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                            "stepIndex", stepIndex,
+                            "stepName", step.getName(),
+                            "status", "FAILED",
+                            "error", errorMsg
+                    ));
+                }
                 compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
                 throw e;
             } catch (Exception e) {
                 log.error("Saga [{}] failed at step {} [{}]: {}", sagaId, stepIndex, step.getName(), e.getMessage());
                 String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 journalStore.recordStepFailure(sagaId, stepIndex, errorMsg);
+                if (eventBroadcaster != null) {
+                    eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                            "stepIndex", stepIndex,
+                            "stepName", step.getName(),
+                            "status", "FAILED",
+                            "error", errorMsg
+                    ));
+                }
 
                 // Backward compensation for all previously completed steps in reverse order
                 compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
@@ -145,6 +187,13 @@ public class SagaCoordinator {
             if (outboxService != null) {
                 outboxService.recordEvent("SAGA_STEP", sagaId + ":" + stepIndex, "STEP_COMPLETED", stepResponsePayload, tenantId, idempotencyKey);
             }
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                        "stepIndex", stepIndex,
+                        "stepName", step.getName(),
+                        "status", "COMPLETED"
+                ));
+            }
             context = context.withStepResult(step.getName(), stepResult);
             log.info("Saga [{}]: Completed step {} [{}]", sagaId, stepIndex, step.getName());
         }
@@ -156,6 +205,11 @@ public class SagaCoordinator {
         journalStore.completeSaga(sagaId, finalResultJson);
         if (outboxService != null) {
             outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_COMPLETED", finalResultJson, tenantId, idempotencyKey);
+        }
+        if (eventBroadcaster != null) {
+            eventBroadcaster.broadcast("SAGA_COMPLETED", sagaId, tenantId, Map.of(
+                    "status", "COMPLETED"
+            ));
         }
         log.info("Saga [{}] completed successfully", sagaId);
 
@@ -268,6 +322,13 @@ public class SagaCoordinator {
             SagaStepDefinition<I> step = steps.get(i);
             log.info("Saga [{}]: Executing compensation for step {} [{}]", sagaId, i, step.getName());
             journalStore.recordStepCompensating(sagaId, i);
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                        "stepIndex", i,
+                        "stepName", step.getName(),
+                        "status", "COMPENSATING"
+                ));
+            }
 
             try {
                 if (step.isParallel()) {
@@ -283,6 +344,13 @@ public class SagaCoordinator {
                 }
                 journalStore.recordStepCompensated(sagaId, i, "{\"status\":\"COMPENSATED\"}");
                 compensatedStepNames.add(step.getName());
+                if (eventBroadcaster != null) {
+                    eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
+                            "stepIndex", i,
+                            "stepName", step.getName(),
+                            "status", "COMPENSATED"
+                    ));
+                }
                 log.info("Saga [{}]: Successfully compensated step {} [{}]", sagaId, i, step.getName());
             } catch (Exception compEx) {
                 log.error("Saga [{}]: Compensation failed for step {} [{}]: {}", sagaId, i, step.getName(), compEx.getMessage());
@@ -304,6 +372,13 @@ public class SagaCoordinator {
         journalStore.completeSagaCompensation(sagaId, resultJson);
         if (outboxService != null) {
             outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_COMPENSATED", resultJson, tenantId, idempotencyKey);
+        }
+        if (eventBroadcaster != null) {
+            eventBroadcaster.broadcast("SAGA_COMPENSATED", sagaId, tenantId, Map.of(
+                    "status", "COMPENSATED",
+                    "failedStep", failedStepName,
+                    "failureReason", failureReason
+            ));
         }
         log.info("Saga [{}]: Completed backward compensation successfully", sagaId);
 

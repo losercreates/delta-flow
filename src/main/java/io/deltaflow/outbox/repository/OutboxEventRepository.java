@@ -29,5 +29,7 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     List<OutboxEvent> findByStatusOrderByCreatedAtAsc(String status, Pageable pageable);
 
     List<OutboxEvent> findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc(String aggregateType, String aggregateId);
+
+    long countByStatus(String status);
 }
 
