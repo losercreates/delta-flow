@@ -1,0 +1,249 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Chaos Testing, Observability & Audit Export API
+  version: 1.0.0
+  description: Endpoints for SOC2/PCI-DSS immutable audit trail export, automated financial invariant verification, and operational health probes.
+paths:
+  /api/v1/audit/export:
+    get:
+      summary: Export Immutable Audit Trail
+      description: Streams tamper-evident audit trail records in JSON (newline-delimited) or CSV format with SHA-256 cryptographic hash chaining and PCI-DSS data redaction.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [JSON, CSV]
+            default: JSON
+          description: Serialization format for the exported audit records.
+        - name: fromTimestamp
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter records starting from this timestamp (inclusive).
+        - name: toTimestamp
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter records ending at this timestamp (inclusive).
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter records by partition tenant identifier.
+        - name: eventType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter records by domain event type (e.g. SAGA_STARTED, OPERATOR_INTERVENTION).
+      responses:
+        '200':
+          description: Continuous stream of audit records
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="deltaflow-audit-trail-20261116.jsonl"
+          content:
+            application/x-ndjson:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditExportRecord'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Invalid query parameters or date range
+
+  /api/v1/invariants/verify:
+    get:
+      summary: Verify Financial Invariants
+      description: Scans all historical account movements and saga journal records to mathematically prove that Sum(Debits) == Sum(Credits) + Sum(Refunds) with zero discrepancy and zero double-spends.
+      responses:
+        '200':
+          description: Invariant verification execution report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvariantVerificationReport'
+
+  /actuator/health/readiness:
+    get:
+      summary: Kubernetes Readiness Probe
+      description: Returns 200 OK when database, Redis, and circuit breakers are ready to accept financial transactions; returns 503 during startup, severe degradation, or graceful draining.
+      responses:
+        '200':
+          description: Node is ready for traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusDto'
+        '503':
+          description: Node is unready or draining
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusDto'
+
+  /actuator/health/liveness:
+    get:
+      summary: Kubernetes Liveness Probe
+      description: Returns 200 OK when application process and JVM are responsive.
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusDto'
+
+components:
+  schemas:
+    AuditExportRecord:
+      type: object
+      properties:
+        sequenceNumber:
+          type: integer
+          format: int64
+          example: 1042
+        eventId:
+          type: string
+          format: uuid
+          example: 7d03e7b9-a653-4aeb-a413-911501a24ef0
+        eventType:
+          type: string
+          example: SAGA_COMPLETED
+        tenantId:
+          type: string
+          example: default
+        idempotencyKey:
+          type: string
+          example: transfer-key-99812
+        sagaId:
+          type: string
+          format: uuid
+          nullable: true
+          example: b47ac10b-58cc-4372-a567-0e02b2c3d479
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-11-16T12:00:00.123Z
+        operatorId:
+          type: string
+          nullable: true
+          example: op_security_auditor
+        maskedPayload:
+          type: string
+          example: '{"sourceAccount":"****-****-****-1002","amount":250.00}'
+        payloadHash:
+          type: string
+          example: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        previousEventHash:
+          type: string
+          example: a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0
+        recordChecksum:
+          type: string
+          example: f3a1c2e4b5d67890123456789abcdef0123456789abcdef0123456789abcdef0
+
+    InvariantVerificationReport:
+      type: object
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [PASSED, VIOLATED]
+          example: PASSED
+        totalTransactionsAudited:
+          type: integer
+          format: int64
+          example: 5000
+        successfulTransactions:
+          type: integer
+          format: int64
+          example: 4620
+        compensatedTransactions:
+          type: integer
+          format: int64
+          example: 380
+        failedTransactions:
+          type: integer
+          format: int64
+          example: 0
+        totalSourceDebits:
+          type: number
+          format: double
+          example: 1250000.00
+        totalTargetCredits:
+          type: number
+          format: double
+          example: 1155000.00
+        totalRefundedCredits:
+          type: number
+          format: double
+          example: 95000.00
+        discrepancyAmount:
+          type: number
+          format: double
+          example: 0.00
+        doubleSpendCount:
+          type: integer
+          example: 0
+        orphanedDebitCount:
+          type: integer
+          example: 0
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvariantViolation'
+
+    InvariantViolation:
+      type: object
+      properties:
+        violationType:
+          type: string
+          example: DOUBLE_SPEND
+        accountId:
+          type: string
+          nullable: true
+          example: acc_source_1
+        sagaId:
+          type: string
+          format: uuid
+          nullable: true
+        expectedValue:
+          type: string
+        actualValue:
+          type: string
+        details:
+          type: string
+
+    HealthStatusDto:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN, OUT_OF_SERVICE]
+          example: UP
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                example: UP
+              details:
+                type: object
