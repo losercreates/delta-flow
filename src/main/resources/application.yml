@@ -55,11 +55,6 @@ management:
       show-details: always
       probes:
         enabled: true
-      group:
-        readiness:
-          include: readinessState,customDatabaseHealthIndicator,customRedisLockHealthIndicator,drainingHealthIndicator,db,redis
-        liveness:
-          include: livenessState
   health:
     livenessstate:
       enabled: true

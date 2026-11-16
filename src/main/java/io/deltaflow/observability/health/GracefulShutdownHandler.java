@@ -8,6 +8,7 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.availability.AvailabilityChangeEvent;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
@@ -16,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component("drainingHealthIndicator")
-public class GracefulShutdownHandler implements SmartLifecycle, HealthIndicator {
+public class GracefulShutdownHandler implements SmartLifecycle, HealthIndicator, ApplicationEventPublisherAware {
 
     private static final Logger log = LoggerFactory.getLogger(GracefulShutdownHandler.class);
 
@@ -24,14 +25,20 @@ public class GracefulShutdownHandler implements SmartLifecycle, HealthIndicator 
     private final AtomicBoolean draining = new AtomicBoolean(false);
     private final AtomicLong activeSagaCount = new AtomicLong(0);
     private final long startTimeMillis = System.currentTimeMillis();
-    private final ApplicationEventPublisher eventPublisher;
+    private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
     public GracefulShutdownHandler(@Autowired(required = false) ApplicationEventPublisher eventPublisher) {
         this.eventPublisher = eventPublisher;
     }
 
     public GracefulShutdownHandler() {
         this(null);
+    }
+
+    @Override
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.eventPublisher = applicationEventPublisher;
     }
 
     public void registerSagaStart() {
