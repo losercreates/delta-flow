@@ -2,8 +2,11 @@ package io.deltaflow.common.audit;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.deltaflow.audit.service.AuditLogStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -19,11 +22,12 @@ public class AuditLogger {
 
     private static final Logger log = LoggerFactory.getLogger("io.deltaflow.audit");
     private final ObjectMapper objectMapper;
-    private final io.deltaflow.audit.service.AuditLogStore auditLogStore;
+    private final AuditLogStore auditLogStore;
 
+    @Autowired
     public AuditLogger(
             ObjectMapper objectMapper,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) io.deltaflow.audit.service.AuditLogStore auditLogStore
+            @Nullable AuditLogStore auditLogStore
     ) {
         this.objectMapper = objectMapper;
         this.auditLogStore = auditLogStore;
