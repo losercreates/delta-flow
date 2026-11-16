@@ -89,7 +89,7 @@ class SagaStructuredConcurrencyIntegrationTest extends AbstractIntegrationTest {
     void testParallelBranchFailureCancelsSiblingsAndCompensates() throws Exception {
         AtomicBoolean step1Compensated = new AtomicBoolean(false);
         CountDownLatch branch2InterruptedLatch = new CountDownLatch(1);
-        CountDownLatch branch1FailedLatch = new CountDownLatch(1);
+        CountDownLatch branch2StartedLatch = new CountDownLatch(1);
 
         SagaDefinition<ParallelTestRequest, Map<String, Object>> saga = SagaBuilder.<ParallelTestRequest, Map<String, Object>>named("parallel-failure-saga")
                 .inputType(ParallelTestRequest.class)
@@ -98,14 +98,22 @@ class SagaStructuredConcurrencyIntegrationTest extends AbstractIntegrationTest {
                     .compensate((ctx, req) -> step1Compensated.set(true))
                 .parallelStep("parallel-step", p -> p
                         .branch("failing-branch", (ctx, req) -> {
-                            branch1FailedLatch.countDown();
+                            try {
+                                boolean started = branch2StartedLatch.await(5, TimeUnit.SECONDS);
+                                if (!started) {
+                                    throw new IllegalStateException("Sibling branch did not start in time");
+                                }
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException("Interrupted waiting for sibling branch", e);
+                            }
                             throw new RuntimeException("Simulated branch failure in parallelStep");
                         })
                         .branch("slow-sibling-branch", (ctx, req) -> {
+                            branch2StartedLatch.countDown();
                             try {
-                                branch1FailedLatch.await(5, TimeUnit.SECONDS);
                                 // Sleep to ensure cancellation is received
-                                Thread.sleep(2000);
+                                Thread.sleep(10000);
                             } catch (InterruptedException e) {
                                 branch2InterruptedLatch.countDown();
                                 Thread.currentThread().interrupt();
@@ -122,7 +130,7 @@ class SagaStructuredConcurrencyIntegrationTest extends AbstractIntegrationTest {
                 .isInstanceOf(SagaCompensatedException.class);
 
         // Verify slow sibling was cancelled / interrupted
-        boolean wasInterrupted = branch2InterruptedLatch.await(3, TimeUnit.SECONDS);
+        boolean wasInterrupted = branch2InterruptedLatch.await(5, TimeUnit.SECONDS);
         assertThat(wasInterrupted).isTrue();
         // Verify earlier step was compensated
         assertThat(step1Compensated.get()).isTrue();
