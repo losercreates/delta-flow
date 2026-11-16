@@ -28,6 +28,8 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 deltaflow:
   idempotency:
@@ -48,4 +50,14 @@ management:
     web:
       exposure:
         include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 

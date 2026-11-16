@@ -62,6 +62,23 @@ public class OutboxService {
             }
         }
 
+        String traceparent = io.deltaflow.observability.tracing.TraceContextHolder.getTraceparent();
+        String traceId = io.deltaflow.observability.tracing.TraceContextHolder.getTraceId();
+        if (traceparent != null) {
+            try {
+                if (payloadJson.trim().startsWith("{")) {
+                    Map<String, Object> map = objectMapper.readValue(payloadJson, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                    if (!map.containsKey("traceparent")) {
+                        map.put("traceparent", traceparent);
+                        map.put("traceId", traceId);
+                        payloadJson = objectMapper.writeValueAsString(map);
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Payload is not a standard JSON map, keeping as is: {}", e.getMessage());
+            }
+        }
+
         UUID eventId = UUID.randomUUID();
         OutboxEvent event = new OutboxEvent(eventId, aggregateType, aggregateId, eventType, payloadJson);
         event.setStatus(OutboxStatus.PENDING.name());
@@ -76,6 +93,10 @@ public class OutboxService {
         auditDetails.put("aggregateType", aggregateType);
         auditDetails.put("aggregateId", aggregateId);
         auditDetails.put("eventType", eventType);
+        if (traceparent != null) {
+            auditDetails.put("traceparent", traceparent);
+            auditDetails.put("traceId", traceId);
+        }
         auditLogger.logEvent("OUTBOX_RECORDED", tenantId, idempotencyKey, auditDetails);
 
         return saved;

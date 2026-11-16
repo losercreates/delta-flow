@@ -31,6 +31,8 @@ public class SagaCoordinator {
     private final io.deltaflow.outbox.service.OutboxService outboxService;
     private final io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry;
     private final io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster;
+    private final io.deltaflow.observability.tracing.DeltaFlowTracer tracer;
+    private final io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler;
 
     public sealed interface SagaEvent permits
             SagaEvent.StartExecution,
@@ -64,13 +66,38 @@ public class SagaCoordinator {
             ObjectMapper objectMapper,
             io.deltaflow.outbox.service.OutboxService outboxService,
             io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
-            @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster
+            @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
+            @Autowired(required = false) io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
+            @Autowired(required = false) io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler
     ) {
         this.journalStore = journalStore;
         this.objectMapper = objectMapper;
         this.outboxService = outboxService;
         this.resiliencePolicyRegistry = resiliencePolicyRegistry;
         this.eventBroadcaster = eventBroadcaster;
+        this.tracer = tracer;
+        this.shutdownHandler = shutdownHandler;
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
+            io.deltaflow.observability.tracing.DeltaFlowTracer tracer
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, eventBroadcaster, tracer, null);
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, eventBroadcaster, null);
     }
 
     public SagaCoordinator(
@@ -105,7 +132,11 @@ public class SagaCoordinator {
         Objects.requireNonNull(sagaId, "SagaId must not be null");
         tenantId = (tenantId == null || tenantId.isBlank()) ? "default" : tenantId;
 
-        String inputJson = serialize(input);
+        if (shutdownHandler != null) {
+            shutdownHandler.registerSagaStart();
+        }
+        try {
+            String inputJson = serialize(input);
         journalStore.createSagaInstance(sagaId, tenantId, idempotencyKey, definition.getName(), inputJson);
         if (outboxService != null) {
             outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_STARTED", inputJson, tenantId, idempotencyKey);
@@ -135,6 +166,10 @@ public class SagaCoordinator {
                 ));
             }
 
+            io.opentelemetry.api.trace.Span stepSpan = (tracer != null)
+                    ? tracer.startStepSpan(sagaId, stepIndex, step.getName())
+                    : null;
+
             Object stepResult;
             try {
                 if (step.isParallel()) {
@@ -142,7 +177,13 @@ public class SagaCoordinator {
                 } else {
                     stepResult = executeStepAction(step, context, input);
                 }
+                if (tracer != null) {
+                    tracer.recordStepSuccess(stepSpan);
+                }
             } catch (CallNotPermittedException e) {
+                if (tracer != null) {
+                    tracer.recordStepFailure(stepSpan, e);
+                }
                 log.warn("Saga [{}] step {} [{}] fast-failed due to open circuit breaker: {}",
                         sagaId, stepIndex, step.getName(), e.getMessage());
                 String errorMsg = "Circuit breaker open: " + e.getMessage();
@@ -158,6 +199,9 @@ public class SagaCoordinator {
                 compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
                 throw e;
             } catch (Exception e) {
+                if (tracer != null) {
+                    tracer.recordStepFailure(stepSpan, e);
+                }
                 log.error("Saga [{}] failed at step {} [{}]: {}", sagaId, stepIndex, step.getName(), e.getMessage());
                 String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 journalStore.recordStepFailure(sagaId, stepIndex, errorMsg);
@@ -211,9 +255,14 @@ public class SagaCoordinator {
                     "status", "COMPLETED"
             ));
         }
-        log.info("Saga [{}] completed successfully", sagaId);
+            log.info("Saga [{}] completed successfully", sagaId);
 
-        return finalResult;
+            return finalResult;
+        } finally {
+            if (shutdownHandler != null) {
+                shutdownHandler.registerSagaEnd();
+            }
+        }
     }
 
     private <I> Object executeStepAction(SagaStepDefinition<I> step, SagaExecutionContext context, I input) {
@@ -243,9 +292,21 @@ public class SagaCoordinator {
         try (var scope = new StructuredTaskScope.ShutdownOnFailure("saga-" + sagaId + "-step-" + stepIndex,
                 Thread.ofVirtual().name("saga-" + sagaId + "-branch-", 0).factory())) {
 
+            var parentTrace = io.deltaflow.observability.tracing.TraceContextHolder.get();
             for (ParallelBranchDefinition<I> branch : branches) {
                 log.info("Saga [{}]: Forking parallel branch [{}] on Virtual Thread", sagaId, branch.getBranchName());
-                StructuredTaskScope.Subtask<Object> subtask = scope.fork(() -> branch.getAction().apply(context, input));
+                StructuredTaskScope.Subtask<Object> subtask = scope.fork(() -> {
+                    if (parentTrace != null) {
+                        io.deltaflow.observability.tracing.TraceContextHolder.set(parentTrace);
+                    }
+                    try {
+                        return branch.getAction().apply(context, input);
+                    } finally {
+                        if (parentTrace != null) {
+                            io.deltaflow.observability.tracing.TraceContextHolder.clear();
+                        }
+                    }
+                });
                 branchSubtasks.put(branch.getBranchName(), subtask);
             }
 
@@ -344,6 +405,9 @@ public class SagaCoordinator {
                 }
                 journalStore.recordStepCompensated(sagaId, i, "{\"status\":\"COMPENSATED\"}");
                 compensatedStepNames.add(step.getName());
+                if (tracer != null) {
+                    tracer.recordCompensationSpan(sagaId, i, step.getName(), failureReason);
+                }
                 if (eventBroadcaster != null) {
                     eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
                             "stepIndex", i,

@@ -16,9 +16,9 @@
 
 **Purpose**: Dependency additions, build configurations, and baseline properties for Toxiproxy, OpenTelemetry, and Actuator
 
-- [ ] T001 Add `org.testcontainers:toxiproxy`, `eu.rekawek.toxiproxy:toxiproxy-java`, `io.opentelemetry:opentelemetry-api`, and `io.opentelemetry:opentelemetry-sdk` dependencies in `pom.xml`
-- [ ] T002 Configure Spring Boot Actuator health endpoints, Kubernetes probes (`liveness`, `readiness`), and graceful shutdown timeout (30s) in `src/main/resources/application.yml`
-- [ ] T003 [P] Configure test profile overrides for OpenTelemetry and Actuator in `src/test/resources/application-test.yml`
+- [x] T001 Add `org.testcontainers:toxiproxy`, `eu.rekawek.toxiproxy:toxiproxy-java`, `io.opentelemetry:opentelemetry-api`, and `io.opentelemetry:opentelemetry-sdk` dependencies in `pom.xml`
+- [x] T002 Configure Spring Boot Actuator health endpoints, Kubernetes probes (`liveness`, `readiness`), and graceful shutdown timeout (30s) in `src/main/resources/application.yml`
+- [x] T003 [P] Configure test profile overrides for OpenTelemetry and Actuator in `src/test/resources/application-test.yml`
 
 ---
 
@@ -28,10 +28,10 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 [P] Create OpenTelemetry tracing wrapper records `TraceContextMetadata.java` and `TraceContextHolder.java` supporting virtual thread inheritance in `src/main/java/io/deltaflow/observability/tracing/`
-- [ ] T005 [P] Create financial invariant verification domain records `InvariantVerificationReport.java`, `InvariantViolation.java`, and `AccountBalanceSnapshot.java` in `src/main/java/io/deltaflow/chaos/domain/`
-- [ ] T006 [P] Create audit export records `AuditExportRecord.java`, `AuditExportFormat.java`, and `AuditExportRequest.java` in `src/main/java/io/deltaflow/audit/dto/`
-- [ ] T007 [P] Create composite health projection record `ProductionHealthDetails.java` in `src/main/java/io/deltaflow/observability/health/`
+- [x] T004 [P] Create OpenTelemetry tracing wrapper records `TraceContextMetadata.java` and `TraceContextHolder.java` supporting virtual thread inheritance in `src/main/java/io/deltaflow/observability/tracing/`
+- [x] T005 [P] Create financial invariant verification domain records `InvariantVerificationReport.java`, `InvariantViolation.java`, and `AccountBalanceSnapshot.java` in `src/main/java/io/deltaflow/chaos/domain/`
+- [x] T006 [P] Create audit export records `AuditExportRecord.java`, `AuditExportFormat.java`, and `AuditExportRequest.java` in `src/main/java/io/deltaflow/audit/dto/`
+- [x] T007 [P] Create composite health projection record `ProductionHealthDetails.java` in `src/main/java/io/deltaflow/observability/health/`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -47,13 +47,13 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T008 [P] [US1] Integration test verifying saga behavior under 30% packet loss and latency spikes in `src/test/java/io/deltaflow/chaos/integration/ToxiproxyNetworkChaosIntegrationTest.java`
+- [x] T008 [P] [US1] Integration test verifying saga behavior under 30% packet loss and latency spikes in `src/test/java/io/deltaflow/chaos/integration/ToxiproxyNetworkChaosIntegrationTest.java`
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Implement Toxiproxy container support helper and proxy manager `ToxiproxyHarness.java` managing proxy ports for PostgreSQL and Redis in `src/test/java/io/deltaflow/chaos/support/ToxiproxyHarness.java`
-- [ ] T010 [US1] Implement simulated toxic scenarios (latency jitter, packet drop, connection cutoff) in `src/test/java/io/deltaflow/chaos/support/ChaosScenarios.java`
-- [ ] T011 [US1] Integrate connection timeout and retry boundary safeguards in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java` to prevent thread starvation during prolonged persistence latency
+- [x] T009 [US1] Implement Toxiproxy container support helper and proxy manager `ToxiproxyHarness.java` managing proxy ports for PostgreSQL and Redis in `src/test/java/io/deltaflow/chaos/support/ToxiproxyHarness.java`
+- [x] T010 [US1] Implement simulated toxic scenarios (latency jitter, packet drop, connection cutoff) in `src/test/java/io/deltaflow/chaos/support/ChaosScenarios.java`
+- [x] T011 [US1] Integrate connection timeout and retry boundary safeguards in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java` to prevent thread starvation during prolonged persistence latency
 
 **Checkpoint**: User Story 1 is fully functional and independently verified (MVP delivered).
 
@@ -67,13 +67,13 @@
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 [P] [US2] Integration test verifying ledger balance conservation and zero double-spend detection in `src/test/java/io/deltaflow/chaos/integration/FinancialInvariantVerificationTest.java`
+- [x] T012 [P] [US2] Integration test verifying ledger balance conservation and zero double-spend detection in `src/test/java/io/deltaflow/chaos/integration/FinancialInvariantVerificationTest.java`
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement `FinancialInvariantVerifier.java` scanning account debits, credits, and compensation refunds to assert balance conservation in `src/main/java/io/deltaflow/chaos/service/FinancialInvariantVerifier.java`
-- [ ] T014 [US2] Implement `GET /api/v1/invariants/verify` endpoint returning `InvariantVerificationReport` in `src/main/java/io/deltaflow/chaos/api/InvariantVerificationController.java`
-- [ ] T015 [US2] Add double-spend detection logic checking for duplicate idempotency key executions in `src/main/java/io/deltaflow/chaos/service/FinancialInvariantVerifier.java`
+- [x] T013 [US2] Implement `FinancialInvariantVerifier.java` scanning account debits, credits, and compensation refunds to assert balance conservation in `src/main/java/io/deltaflow/chaos/service/FinancialInvariantVerifier.java`
+- [x] T014 [US2] Implement `GET /api/v1/invariants/verify` endpoint returning `InvariantVerificationReport` in `src/main/java/io/deltaflow/chaos/api/InvariantVerificationController.java`
+- [x] T015 [US2] Add double-spend detection logic checking for duplicate idempotency key executions in `src/main/java/io/deltaflow/chaos/service/FinancialInvariantVerifier.java`
 
 **Checkpoint**: User Stories 1 AND 2 work independently.
 
@@ -87,14 +87,14 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T016 [P] [US3] Integration test verifying W3C `traceparent` extraction, virtual thread context propagation, and outbox event trace tagging in `src/test/java/io/deltaflow/observability/integration/W3CTracePropagationIntegrationTest.java`
+- [x] T016 [P] [US3] Integration test verifying W3C `traceparent` extraction, virtual thread context propagation, and outbox event trace tagging in `src/test/java/io/deltaflow/observability/integration/W3CTracePropagationIntegrationTest.java`
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Implement `W3CTraceContextFilter.java` extracting incoming `traceparent` headers or generating new W3C trace IDs in `src/main/java/io/deltaflow/observability/filter/W3CTraceContextFilter.java`
-- [ ] T018 [US3] Implement `DeltaFlowTracer.java` wrapping OpenTelemetry `Tracer` to create and close spans for saga steps in `src/main/java/io/deltaflow/observability/tracing/DeltaFlowTracer.java`
-- [ ] T019 [US3] Integrate `DeltaFlowTracer` into `SagaCoordinator.java` to record step spans and propagate trace context to parallel virtual threads in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T020 [US3] Inject active `traceparent` into outbox domain event metadata in `src/main/java/io/deltaflow/outbox/service/OutboxService.java`
+- [x] T017 [US3] Implement `W3CTraceContextFilter.java` extracting incoming `traceparent` headers or generating new W3C trace IDs in `src/main/java/io/deltaflow/observability/filter/W3CTraceContextFilter.java`
+- [x] T018 [US3] Implement `DeltaFlowTracer.java` wrapping OpenTelemetry `Tracer` to create and close spans for saga steps in `src/main/java/io/deltaflow/observability/tracing/DeltaFlowTracer.java`
+- [x] T019 [US3] Integrate `DeltaFlowTracer` into `SagaCoordinator.java` to record step spans and propagate trace context to parallel virtual threads in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [x] T020 [US3] Inject active `traceparent` into outbox domain event metadata in `src/main/java/io/deltaflow/outbox/service/OutboxService.java`
 
 **Checkpoint**: User Stories 1, 2, and 3 are functional.
 
@@ -108,13 +108,13 @@
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T021 [P] [US4] Integration test verifying NDJSON/CSV streaming, cryptographic hash chaining, and PCI-DSS masking in `src/test/java/io/deltaflow/audit/integration/AuditExportIntegrationTest.java`
+- [x] T021 [P] [US4] Integration test verifying NDJSON/CSV streaming, cryptographic hash chaining, and PCI-DSS masking in `src/test/java/io/deltaflow/audit/integration/AuditExportIntegrationTest.java`
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Implement `PciDssMaskingService.java` sanitizing account numbers (e.g. `****-****-****-1234`) and redacting credentials in `src/main/java/io/deltaflow/audit/service/PciDssMaskingService.java`
-- [ ] T023 [US4] Implement `AuditLogExporter.java` with SHA-256 hash chaining and reactive streaming serialization in `src/main/java/io/deltaflow/audit/service/AuditLogExporter.java`
-- [ ] T024 [US4] Implement `AuditExportController.java` handling `GET /api/v1/audit/export` with chunked transfer encoding in `src/main/java/io/deltaflow/audit/api/AuditExportController.java`
+- [x] T022 [US4] Implement `PciDssMaskingService.java` sanitizing account numbers (e.g. `****-****-****-1234`) and redacting credentials in `src/main/java/io/deltaflow/audit/service/PciDssMaskingService.java`
+- [x] T023 [US4] Implement `AuditLogExporter.java` with SHA-256 hash chaining and reactive streaming serialization in `src/main/java/io/deltaflow/audit/service/AuditLogExporter.java`
+- [x] T024 [US4] Implement `AuditExportController.java` handling `GET /api/v1/audit/export` with chunked transfer encoding in `src/main/java/io/deltaflow/audit/api/AuditExportController.java`
 
 **Checkpoint**: User Stories 1, 2, 3, and 4 are functional.
 
@@ -128,13 +128,13 @@
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T025 [P] [US5] Integration test verifying actuator health indicators, readiness de-registration on failure, and graceful draining in `src/test/java/io/deltaflow/observability/integration/ProductionHealthProbesIntegrationTest.java`
+- [x] T025 [P] [US5] Integration test verifying actuator health indicators, readiness de-registration on failure, and graceful draining in `src/test/java/io/deltaflow/observability/integration/ProductionHealthProbesIntegrationTest.java`
 
 ### Implementation for User Story 5
 
-- [ ] T026 [US5] Implement `DatabaseHealthIndicator.java` checking PostgreSQL response time in `src/main/java/io/deltaflow/observability/health/DatabaseHealthIndicator.java`
-- [ ] T027 [US5] Implement `RedisLockHealthIndicator.java` checking Redis latency in `src/main/java/io/deltaflow/observability/health/RedisLockHealthIndicator.java`
-- [ ] T028 [US5] Implement `GracefulShutdownHandler.java` coordinating in-flight WAL completion upon `SIGTERM` in `src/main/java/io/deltaflow/observability/health/GracefulShutdownHandler.java`
+- [x] T026 [US5] Implement `DatabaseHealthIndicator.java` checking PostgreSQL response time in `src/main/java/io/deltaflow/observability/health/DatabaseHealthIndicator.java`
+- [x] T027 [US5] Implement `RedisLockHealthIndicator.java` checking Redis latency in `src/main/java/io/deltaflow/observability/health/RedisLockHealthIndicator.java`
+- [x] T028 [US5] Implement `GracefulShutdownHandler.java` coordinating in-flight WAL completion upon `SIGTERM` in `src/main/java/io/deltaflow/observability/health/GracefulShutdownHandler.java`
 
 **Checkpoint**: All user stories functional.
 
@@ -144,9 +144,9 @@
 
 **Purpose**: Cross-cutting verification, documentation updates, and complete test suite validation
 
-- [ ] T029 Execute all quickstart validation scenarios from `specs/006-chaos-hardening/quickstart.md`
-- [ ] T030 Run full regression test suite `mvn test -B` with Testcontainers verifying all Milestones 1–6 pass cleanly
-- [ ] T031 Validate constitution compliance across all new packages and update OpenAPI documentation
+- [x] T029 Execute all quickstart validation scenarios from `specs/006-chaos-hardening/quickstart.md`
+- [x] T030 Run full regression test suite `mvn test -B` with Testcontainers verifying all Milestones 1–6 pass cleanly
+- [x] T031 Validate constitution compliance across all new packages and update OpenAPI documentation
 
 ---
 
