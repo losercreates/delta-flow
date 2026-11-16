@@ -4,10 +4,7 @@ import io.deltaflow.chaos.domain.InvariantVerificationReport;
 import io.deltaflow.chaos.service.FinancialInvariantVerifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/invariants")
@@ -22,8 +19,10 @@ public class InvariantVerificationController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<InvariantVerificationReport> verifyFinancialInvariants() {
-        InvariantVerificationReport report = verifier.verifyInvariants();
+    public ResponseEntity<InvariantVerificationReport> verifyFinancialInvariants(
+            @RequestParam(name = "tenantId", required = false) String tenantId
+    ) {
+        InvariantVerificationReport report = verifier.verifyInvariants(tenantId);
         return ResponseEntity.ok(report);
     }
 }

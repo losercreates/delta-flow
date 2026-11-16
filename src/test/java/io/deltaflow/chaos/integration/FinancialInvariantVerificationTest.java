@@ -54,7 +54,7 @@ public class FinancialInvariantVerificationTest extends AbstractIntegrationTest 
 
         // 3. Query Invariant Verification API
         ResponseEntity<InvariantVerificationReport> response = restTemplate.getForEntity(
-                "/api/v1/invariants/verify",
+                "/api/v1/invariants/verify?tenantId=tenant-inv",
                 InvariantVerificationReport.class
         );
 

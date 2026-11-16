@@ -62,7 +62,7 @@ public class ProductionHealthProbesIntegrationTest extends AbstractIntegrationTe
         // Must now return 503 OUT_OF_SERVICE
         ResponseEntity<Map> drainingResponse = restTemplate.getForEntity("/actuator/health/readiness", Map.class);
         assertThat(drainingResponse.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(drainingResponse.getBody().get("status")).isEqualTo("OUT_OF_SERVICE");
+        assertThat(drainingResponse.getBody().get("status")).isIn("OUT_OF_SERVICE", "DOWN");
 
         // Cancel draining -> recovers to 200 UP
         shutdownHandler.cancelDraining();

@@ -2,8 +2,12 @@ package io.deltaflow.observability.health;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.availability.AvailabilityChangeEvent;
+import org.springframework.boot.availability.ReadinessState;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +24,15 @@ public class GracefulShutdownHandler implements SmartLifecycle, HealthIndicator 
     private final AtomicBoolean draining = new AtomicBoolean(false);
     private final AtomicLong activeSagaCount = new AtomicLong(0);
     private final long startTimeMillis = System.currentTimeMillis();
+    private final ApplicationEventPublisher eventPublisher;
+
+    public GracefulShutdownHandler(@Autowired(required = false) ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
+    public GracefulShutdownHandler() {
+        this(null);
+    }
 
     public void registerSagaStart() {
         activeSagaCount.incrementAndGet();
@@ -44,11 +57,18 @@ public class GracefulShutdownHandler implements SmartLifecycle, HealthIndicator 
     public void startDraining() {
         if (draining.compareAndSet(false, true)) {
             log.warn("Graceful draining initiated. Node marked OUT_OF_SERVICE for traffic shedding.");
+            if (eventPublisher != null) {
+                AvailabilityChangeEvent.publish(eventPublisher, this, ReadinessState.REFUSING_TRAFFIC);
+            }
         }
     }
 
     public void cancelDraining() {
-        draining.set(false);
+        if (draining.compareAndSet(true, false)) {
+            if (eventPublisher != null) {
+                AvailabilityChangeEvent.publish(eventPublisher, this, ReadinessState.ACCEPTING_TRAFFIC);
+            }
+        }
     }
 
     public boolean drain(Duration timeout) {

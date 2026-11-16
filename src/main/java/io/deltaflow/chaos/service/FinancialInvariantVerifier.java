@@ -45,10 +45,19 @@ public class FinancialInvariantVerifier {
 
     @Transactional(readOnly = true)
     public InvariantVerificationReport verifyInvariants() {
-        log.info("Starting automated financial invariant verification scan...");
+        return verifyInvariants(null);
+    }
 
-        List<SagaInstance> allSagas = sagaInstanceRepository.findAll();
-        List<IdempotencyRecord> allIdempotency = idempotencyRecordRepository.findAll();
+    @Transactional(readOnly = true)
+    public InvariantVerificationReport verifyInvariants(String tenantId) {
+        log.info("Starting automated financial invariant verification scan (tenant: {})...", tenantId);
+
+        List<SagaInstance> allSagas = (tenantId != null && !tenantId.isBlank())
+                ? sagaInstanceRepository.findAll().stream().filter(s -> tenantId.equals(s.getTenantId())).toList()
+                : sagaInstanceRepository.findAll();
+        List<IdempotencyRecord> allIdempotency = (tenantId != null && !tenantId.isBlank())
+                ? idempotencyRecordRepository.findAll().stream().filter(r -> r.getId() != null && tenantId.equals(r.getId().getTenantId())).toList()
+                : idempotencyRecordRepository.findAll();
 
         long totalAudited = allSagas.size();
         long successfulCount = 0;

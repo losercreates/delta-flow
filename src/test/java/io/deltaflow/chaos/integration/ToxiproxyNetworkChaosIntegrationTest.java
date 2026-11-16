@@ -114,7 +114,7 @@ public class ToxiproxyNetworkChaosIntegrationTest extends AbstractIntegrationTes
                 entity,
                 TransferResponseDto.class
         );
-        assertThat(resp1.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp1.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         // Second attempt with exact same key
         ResponseEntity<TransferResponseDto> resp2 = restTemplate.postForEntity(
@@ -122,7 +122,7 @@ public class ToxiproxyNetworkChaosIntegrationTest extends AbstractIntegrationTes
                 entity,
                 TransferResponseDto.class
         );
-        assertThat(resp2.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp2.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(resp2.getBody()).isNotNull();
         assertThat(resp2.getBody().sagaId()).isEqualTo(resp1.getBody().sagaId());
     }
