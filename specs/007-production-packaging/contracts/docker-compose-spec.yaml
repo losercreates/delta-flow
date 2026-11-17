@@ -1,0 +1,149 @@
+# Docker Compose Infrastructure Contract Specification
+# Defines service topography, container names, health checks, ports, volumes, and networks
+
+version: "3.8"
+
+networks:
+  deltaflow-network:
+    name: deltaflow-network
+    driver: bridge
+
+volumes:
+  deltaflow-db-data:
+    name: deltaflow-db-data
+  deltaflow-redis-data:
+    name: deltaflow-redis-data
+  prometheus-data:
+    name: prometheus-data
+  grafana-data:
+    name: grafana-data
+
+services:
+  deltaflow-db:
+    container_name: deltaflow-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deltaflow}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - deltaflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-deltaflow}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - deltaflow-network
+
+  deltaflow-redis:
+    container_name: deltaflow-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - deltaflow-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - deltaflow-network
+
+  jaeger:
+    container_name: deltaflow-jaeger
+    image: jaegertracing/all-in-one:1.60
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686" # Web UI
+      - "${OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC
+      - "${OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP
+    networks:
+      - deltaflow-network
+
+  deltaflow-backend:
+    container_name: deltaflow-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://deltaflow-db:5432/${POSTGRES_DB:-deltaflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      REDIS_URL: redis://deltaflow-redis:6379
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      JAVA_TOOL_OPTIONS: "--enable-preview"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      deltaflow-db:
+        condition: service_healthy
+      deltaflow-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    networks:
+      - deltaflow-network
+
+  deltaflow-frontend:
+    container_name: deltaflow-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      deltaflow-backend:
+        condition: service_healthy
+    networks:
+      - deltaflow-network
+
+  prometheus:
+    container_name: deltaflow-prometheus
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - deltaflow-backend
+    networks:
+      - deltaflow-network
+
+  grafana:
+    container_name: deltaflow-grafana
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    networks:
+      - deltaflow-network

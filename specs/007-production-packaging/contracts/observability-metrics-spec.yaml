@@ -1,0 +1,98 @@
+# Observability Metrics & Tracing Contract Specification
+# Defines Prometheus scrape endpoints, custom meter schemas, and OTLP trace metadata
+
+openapi: 3.1.0
+info:
+  title: DeltaFlow Production Observability & Metrics API
+  version: 1.0.0
+  description: Specification for Prometheus scraping endpoint and OpenTelemetry distributed tracing schemas.
+
+paths:
+  /actuator/prometheus:
+    get:
+      summary: Prometheus Metrics Scrape Endpoint
+      description: Returns formatted Prometheus text-format metrics including JVM, system, and custom DeltaFlow domain metrics.
+      responses:
+        '200':
+          description: Metrics in Prometheus exposition format
+          content:
+            text/plain; version=0.0.4:
+              schema:
+                type: string
+                example: |
+                  # HELP deltaflow_idempotency_requests_total Total idempotency gate evaluations by status
+                  # TYPE deltaflow_idempotency_requests_total counter
+                  deltaflow_idempotency_requests_total{status="direct"} 142
+                  deltaflow_idempotency_requests_total{status="cached"} 87
+                  deltaflow_idempotency_requests_total{status="conflict"} 3
+                  
+                  # HELP deltaflow_saga_duration_seconds End-to-end saga duration percentiles
+                  # TYPE deltaflow_saga_duration_seconds summary
+                  deltaflow_saga_duration_seconds{quantile="0.5",saga="account-transfer",status="COMPLETED"} 0.045
+                  deltaflow_saga_duration_seconds{quantile="0.95",saga="account-transfer",status="COMPLETED"} 0.120
+                  deltaflow_saga_duration_seconds{quantile="0.99",saga="account-transfer",status="COMPLETED"} 0.250
+                  deltaflow_saga_duration_seconds_count{saga="account-transfer",status="COMPLETED"} 232
+                  
+                  # HELP deltaflow_lock_acquisition_seconds Time taken to acquire distributed locks
+                  # TYPE deltaflow_lock_acquisition_seconds summary
+                  deltaflow_lock_acquisition_seconds{quantile="0.99",lock_type="redis"} 0.008
+
+components:
+  schemas:
+    OtlpSpanPayload:
+      type: object
+      description: Structure of OpenTelemetry span transmitted over OTLP
+      required:
+        - traceId
+        - spanId
+        - name
+        - kind
+        - startTimeUnixNano
+        - endTimeUnixNano
+        - status
+      properties:
+        traceId:
+          type: string
+          example: "4bf92f3577b34da6a3ce929d0e0e4736"
+        spanId:
+          type: string
+          example: "00f067aa0ba902b7"
+        parentSpanId:
+          type: string
+          example: "5fb397be34d23b0f"
+        name:
+          type: string
+          example: "saga-step: debit-step"
+        kind:
+          type: string
+          enum: [INTERNAL, SERVER, CLIENT, PRODUCER, CONSUMER]
+          example: INTERNAL
+        attributes:
+          type: object
+          properties:
+            saga.id:
+              type: string
+              format: uuid
+              example: "4a73e86f-5b6d-4ee8-809e-0129a089b031"
+            saga.step.index:
+              type: integer
+              example: 0
+            saga.step.name:
+              type: string
+              example: "debit-step"
+            w3c.traceId:
+              type: string
+              example: "4bf92f3577b34da6a3ce929d0e0e4736"
+            thread.name:
+              type: string
+              example: "virtual-12"
+        status:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [UNSET, OK, ERROR]
+              example: OK
+            message:
+              type: string
+              example: "Step completed successfully"
