@@ -31,14 +31,29 @@ logging:
     org.flywaydb: INFO
 
 management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
       probes:
+        enabled: true
+    prometheus:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
         enabled: true
   health:
     livenessstate:
       enabled: true
     readinessstate:
       enabled: true
+
+otel:
+  exporter:
+    otlp:
+      enabled: false
 

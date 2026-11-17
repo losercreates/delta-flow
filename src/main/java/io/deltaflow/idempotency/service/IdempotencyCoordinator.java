@@ -34,6 +34,7 @@ public class IdempotencyCoordinator {
     private final PostgresLockFallback postgresLockFallback;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
+    private final io.deltaflow.observability.metrics.DeltaFlowMetrics metrics;
 
     @Value("${deltaflow.idempotency.lease-ttl:30s}")
     private Duration leaseTtl;
@@ -51,11 +52,24 @@ public class IdempotencyCoordinator {
         AuditLogger auditLogger,
         ObjectMapper objectMapper
     ) {
+        this(repository, distributedLockManager, postgresLockFallback, auditLogger, objectMapper, null);
+    }
+
+    @Autowired
+    public IdempotencyCoordinator(
+        IdempotencyRecordRepository repository,
+        @Autowired(required = false) DistributedLockManager distributedLockManager,
+        PostgresLockFallback postgresLockFallback,
+        AuditLogger auditLogger,
+        ObjectMapper objectMapper,
+        @Autowired(required = false) io.deltaflow.observability.metrics.DeltaFlowMetrics metrics
+    ) {
         this.repository = repository;
         this.distributedLockManager = distributedLockManager;
         this.postgresLockFallback = postgresLockFallback;
         this.auditLogger = auditLogger;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     /**
@@ -69,6 +83,9 @@ public class IdempotencyCoordinator {
 
             // US2: Tampering check
             if (!Objects.equals(record.getRequestHash(), requestHash)) {
+                if (metrics != null) {
+                    metrics.recordIdempotencyRequest("conflict");
+                }
                 auditLogger.logEvent("PAYLOAD_MISMATCH", tenantId, idempotencyKey, Map.of(
                     "existingHash", record.getRequestHash(),
                     "incomingHash", requestHash
@@ -78,6 +95,9 @@ public class IdempotencyCoordinator {
 
             // US1: Check if already resolved
             if ("RESOLVED".equalsIgnoreCase(record.getStatus())) {
+                if (metrics != null) {
+                    metrics.recordIdempotencyRequest("cached");
+                }
                 auditLogger.logEvent("CACHE_HIT", tenantId, idempotencyKey, Map.of("status", "RESOLVED"));
                 return toResolvedResult(record);
             }
@@ -91,6 +111,9 @@ public class IdempotencyCoordinator {
                 ));
                 Optional<LockAcquisitionResult.Acquired> acquiredOpt = tryAcquireLockAndPersist(tenantId, idempotencyKey, requestHash, record);
                 if (acquiredOpt.isPresent()) {
+                    if (metrics != null) {
+                        metrics.recordIdempotencyRequest("direct");
+                    }
                     return acquiredOpt.get();
                 }
                 return pollForResolutionOrConflict(tenantId, idempotencyKey, requestHash);
@@ -103,12 +126,18 @@ public class IdempotencyCoordinator {
         // New record - attempt lock acquisition
         Optional<LockAcquisitionResult.Acquired> acquiredOpt = tryAcquireLockAndPersist(tenantId, idempotencyKey, requestHash, null);
         if (acquiredOpt.isPresent()) {
+            if (metrics != null) {
+                metrics.recordIdempotencyRequest("direct");
+            }
             return acquiredOpt.get();
         }
 
         // Another concurrent request acquired the lock first or already resolved
         Optional<IdempotencyRecord> recheck = repository.findById(tenantId, idempotencyKey);
         if (recheck.isPresent() && "RESOLVED".equalsIgnoreCase(recheck.get().getStatus())) {
+            if (metrics != null) {
+                metrics.recordIdempotencyRequest("cached");
+            }
             auditLogger.logEvent("CACHE_HIT", tenantId, idempotencyKey, Map.of("status", "RESOLVED"));
             return toResolvedResult(recheck.get());
         }
@@ -125,11 +154,15 @@ public class IdempotencyCoordinator {
     ) {
         Optional<String> tokenOpt = Optional.empty();
         boolean primaryLockAttempted = false;
+        Instant lockStart = Instant.now();
 
         if (distributedLockManager != null) {
             try {
                 tokenOpt = distributedLockManager.acquireLock(tenantId, idempotencyKey, leaseTtl);
                 primaryLockAttempted = true;
+                if (metrics != null) {
+                    metrics.recordLockAcquisition("redis", Duration.between(lockStart, Instant.now()));
+                }
             } catch (Exception e) {
                 log.warn("Primary distributed lock unavailable, invoking PostgreSQL fallback: {}", e.getMessage());
                 primaryLockAttempted = false;
@@ -137,7 +170,11 @@ public class IdempotencyCoordinator {
         }
 
         if (!primaryLockAttempted) {
+            Instant pgStart = Instant.now();
             tokenOpt = postgresLockFallback.acquireLock(tenantId, idempotencyKey, requestHash, leaseTtl);
+            if (metrics != null) {
+                metrics.recordLockAcquisition("postgres", Duration.between(pgStart, Instant.now()));
+            }
         }
 
         if (tokenOpt.isEmpty()) {
@@ -208,11 +245,17 @@ public class IdempotencyCoordinator {
                 }
 
                 if ("RESOLVED".equalsIgnoreCase(r.getStatus())) {
+                    if (metrics != null) {
+                        metrics.recordIdempotencyRequest("cached");
+                    }
                     auditLogger.logEvent("CACHE_HIT_AFTER_WAIT", tenantId, idempotencyKey, Collections.emptyMap());
                     return toResolvedResult(r);
                 }
 
                 if ("FAILED".equalsIgnoreCase(r.getStatus())) {
+                    if (metrics != null) {
+                        metrics.recordIdempotencyRequest("conflict");
+                    }
                     throw new IdempotencyConflictException(
                         "IDEMPOTENCY_TRANSACTION_FAILED",
                         "Transaction execution failed on initial attempt.",
@@ -222,6 +265,9 @@ public class IdempotencyCoordinator {
             }
         }
 
+        if (metrics != null) {
+            metrics.recordIdempotencyRequest("locked");
+        }
         throw new IdempotencyConflictException(
             "IDEMPOTENCY_KEY_IN_FLIGHT",
             "Transaction is currently being processed by another request. Retry shortly.",

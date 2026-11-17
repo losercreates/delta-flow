@@ -6,6 +6,7 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -22,8 +23,9 @@ public class DeltaFlowTracer {
         this.tracer = GlobalOpenTelemetry.getTracer(INSTRUMENTATION_NAME);
     }
 
+    @Autowired
     public DeltaFlowTracer(Tracer tracer) {
-        this.tracer = tracer;
+        this.tracer = tracer != null ? tracer : GlobalOpenTelemetry.getTracer(INSTRUMENTATION_NAME);
     }
 
     public Span startStepSpan(UUID sagaId, int stepIndex, String stepName) {
@@ -60,11 +62,16 @@ public class DeltaFlowTracer {
     }
 
     public void recordCompensationSpan(UUID sagaId, int stepIndex, String stepName, String cause) {
+        TraceContextMetadata metadata = TraceContextHolder.get();
+        String traceId = (metadata != null) ? metadata.traceId() : "none";
+
         Span span = tracer.spanBuilder("compensate-step: " + stepName)
                 .setAttribute("saga.id", sagaId.toString())
                 .setAttribute("saga.step.index", (long) stepIndex)
                 .setAttribute("saga.step.name", stepName)
                 .setAttribute("saga.compensation.cause", cause != null ? cause : "Unspecified")
+                .setAttribute("w3c.traceId", traceId)
+                .setAttribute("thread.name", Thread.currentThread().getName())
                 .startSpan();
         span.setStatus(StatusCode.OK);
         span.end();

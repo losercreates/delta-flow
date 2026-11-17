@@ -16,9 +16,9 @@
 
 **Purpose**: Dependency management and base project configuration
 
-- [ ] T001 Add `io.opentelemetry:opentelemetry-exporter-otlp:1.39.0` and `io.micrometer:micrometer-registry-prometheus` dependencies in `pom.xml`
-- [ ] T002 [P] Create `.env.example` defining configurable ports (`POSTGRES_PORT=5432`, `REDIS_PORT=6379`, `BACKEND_PORT=8080`, `FRONTEND_PORT=3000`, `PROMETHEUS_PORT=9090`, `GRAFANA_PORT=3001`, `JAEGER_UI_PORT=16686`) and database credentials in `.env.example`
-- [ ] T003 [P] Create configuration directories for Prometheus and Grafana provisioning in `docker/prometheus/` and `docker/grafana/`
+- [X] T001 Add `io.opentelemetry:opentelemetry-exporter-otlp:1.39.0` and `io.micrometer:micrometer-registry-prometheus` dependencies in `pom.xml`
+- [X] T002 [P] Create `.env.example` defining configurable ports (`POSTGRES_PORT=5432`, `REDIS_PORT=6379`, `BACKEND_PORT=8080`, `FRONTEND_PORT=3000`, `PROMETHEUS_PORT=9090`, `GRAFANA_PORT=3001`, `JAEGER_UI_PORT=16686`) and database credentials in `.env.example`
+- [X] T003 [P] Create configuration directories for Prometheus and Grafana provisioning in `docker/prometheus/` and `docker/grafana/`
 
 ---
 
@@ -28,11 +28,11 @@
 
 **⚠️ CRITICAL**: Must complete before user story containerization can boot
 
-- [ ] T004 Configure Spring Boot Actuator to expose `prometheus` alongside `health,info,metrics` and configure `management.prometheus.metrics.export.enabled=true` in `src/main/resources/application.yml`
-- [ ] T005 [P] Configure test profile overrides for Prometheus metrics and OTLP exporter in `src/test/resources/application-test.yml`
-- [ ] T006 [P] Create backend multi-stage `Dockerfile` with compile stage (`eclipse-temurin:21-jdk-jammy`) and minimal JRE runtime stage (`eclipse-temurin:21-jre-jammy`) with `--enable-preview` entrypoint in `Dockerfile`
-- [ ] T007 [P] Create frontend Nginx configuration with reverse proxy routing `/api/` traffic to `http://deltaflow-backend:8080/api/` and SPA HTML5 history routing in `frontend/nginx.conf`
-- [ ] T008 [P] Create frontend multi-stage `Dockerfile` with Node 20 build stage and Nginx 1.27 Alpine runtime stage in `frontend/Dockerfile`
+- [X] T004 Configure Spring Boot Actuator to expose `prometheus` alongside `health,info,metrics` and configure `management.prometheus.metrics.export.enabled=true` in `src/main/resources/application.yml`
+- [X] T005 [P] Configure test profile overrides for Prometheus metrics and OTLP exporter in `src/test/resources/application-test.yml`
+- [X] T006 [P] Create backend multi-stage `Dockerfile` with compile stage (`eclipse-temurin:21-jdk-jammy`) and minimal JRE runtime stage (`eclipse-temurin:21-jre-jammy`) with `--enable-preview` entrypoint in `Dockerfile`
+- [X] T007 [P] Create frontend Nginx configuration with reverse proxy routing `/api/` traffic to `http://deltaflow-backend:8080/api/` and SPA HTML5 history routing in `frontend/nginx.conf`
+- [X] T008 [P] Create frontend multi-stage `Dockerfile` with Node 20 build stage and Nginx 1.27 Alpine runtime stage in `frontend/Dockerfile`
 
 **Checkpoint**: Base container builds and application configurations ready
 
@@ -44,9 +44,9 @@
 
 **Independent Test**: Execute `docker compose up -d`; verify all 7 containers report healthy status via `docker compose ps`; execute a financial transfer via `POST /api/v1/transfers` returning `201 Created` with terminal state in PostgreSQL.
 
-- [ ] T009 [P] [US1] Create root `docker-compose.yml` defining all 7 services (`deltaflow-db`, `deltaflow-redis`, `deltaflow-backend`, `deltaflow-frontend`, `jaeger`, `prometheus`, `grafana`), bridge network `deltaflow-network`, named volumes (`deltaflow-db-data`, `deltaflow-redis-data`, `prometheus-data`, `grafana-data`), and declarative health checks in `docker-compose.yml`
-- [ ] T010 [US1] Configure service dependency conditions (`depends_on: { service: healthy }`), environment bindings from `.env`, and 30s stop grace periods in `docker-compose.yml`
-- [ ] T011 [P] [US1] Create `Makefile` with convenience targets (`up`, `down`, `logs`, `ps`, `restart`, `clean`, `smoke`) in `Makefile`
+- [X] T009 [P] [US1] Create root `docker-compose.yml` defining all 7 services (`deltaflow-db`, `deltaflow-redis`, `deltaflow-backend`, `deltaflow-frontend`, `jaeger`, `prometheus`, `grafana`), bridge network `deltaflow-network`, named volumes (`deltaflow-db-data`, `deltaflow-redis-data`, `prometheus-data`, `grafana-data`), and declarative health checks in `docker-compose.yml`
+- [X] T010 [US1] Configure service dependency conditions (`depends_on: { service: healthy }`), environment bindings from `.env`, and 30s stop grace periods in `docker-compose.yml`
+- [X] T011 [P] [US1] Create `Makefile` with convenience targets (`up`, `down`, `logs`, `ps`, `restart`, `clean`, `smoke`) in `Makefile`
 
 **Checkpoint**: User Story 1 complete — full 7-service stack boots and serves traffic with `docker compose up -d`.
 
@@ -58,10 +58,10 @@
 
 **Independent Test**: Submit a financial transfer request and verify that querying the Jaeger API or UI at `http://localhost:16686` displays correlated spans with `sagaId`, `stepName`, and virtual thread attributes.
 
-- [ ] T012 [P] [US2] Integration test verifying OTLP trace exporter registers spans and gracefully degrades to no-op when collector is offline in `src/test/java/io/deltaflow/observability/integration/OtlpTraceExporterIntegrationTest.java`
-- [ ] T013 [US2] Implement `OpenTelemetryConfig.java` Spring bean wiring `OtlpHttpSpanExporter` with `BatchSpanProcessor` and fallback to no-op exporter in `src/main/java/io/deltaflow/config/OpenTelemetryConfig.java`
-- [ ] T014 [US2] Update `DeltaFlowTracer.java` to ensure span attributes (`saga.id`, `saga.step.index`, `saga.step.name`, `thread.name`, `w3c.traceId`) are formatted for OTLP export and compensation spans link to root trace in `src/main/java/io/deltaflow/observability/tracing/DeltaFlowTracer.java`
-- [ ] T015 [US2] Configure Jaeger service definition in `docker-compose.yml` with OTLP receivers enabled (`COLLECTOR_OTLP_ENABLED=true`) on ports 4317 (gRPC), 4318 (HTTP), and 16686 (UI) in `docker-compose.yml`
+- [X] T012 [P] [US2] Integration test verifying OTLP trace exporter registers spans and gracefully degrades to no-op when collector is offline in `src/test/java/io/deltaflow/observability/integration/OtlpTraceExporterIntegrationTest.java`
+- [X] T013 [US2] Implement `OpenTelemetryConfig.java` Spring bean wiring `OtlpHttpSpanExporter` with `BatchSpanProcessor` and fallback to no-op exporter in `src/main/java/io/deltaflow/config/OpenTelemetryConfig.java`
+- [X] T014 [US2] Update `DeltaFlowTracer.java` to ensure span attributes (`saga.id`, `saga.step.index`, `saga.step.name`, `thread.name`, `w3c.traceId`) are formatted for OTLP export and compensation spans link to root trace in `src/main/java/io/deltaflow/observability/tracing/DeltaFlowTracer.java`
+- [X] T015 [US2] Configure Jaeger service definition in `docker-compose.yml` with OTLP receivers enabled (`COLLECTOR_OTLP_ENABLED=true`) on ports 4317 (gRPC), 4318 (HTTP), and 16686 (UI) in `docker-compose.yml`
 
 **Checkpoint**: User Story 2 complete — distributed traces stream to Jaeger and display full waterfall timelines.
 
@@ -73,14 +73,14 @@
 
 **Independent Test**: Trigger API transactions and verify `/actuator/prometheus` exposes custom metrics; open Grafana at `http://localhost:3001` and verify live panels render throughput, p99 saga latency, and cache hit ratios.
 
-- [ ] T016 [P] [US3] Integration test verifying Prometheus scrape endpoint `/actuator/prometheus` exposes custom DeltaFlow metrics in `src/test/java/io/deltaflow/observability/integration/PrometheusMetricsIntegrationTest.java`
-- [ ] T017 [US3] Implement `DeltaFlowMetrics.java` registering meters: `deltaflow.idempotency.requests.total`, `deltaflow.saga.duration`, `deltaflow.saga.steps.active`, `deltaflow.saga.steps.total`, `deltaflow.lock.acquisition.time`, and `deltaflow.compensations.total` in `src/main/java/io/deltaflow/observability/metrics/DeltaFlowMetrics.java`
-- [ ] T018 [US3] Integrate `DeltaFlowMetrics` into `IdempotencyCoordinator.java` to record requests by status tag (`direct`, `cached`, `conflict`, `locked`) in `src/main/java/io/deltaflow/idempotency/service/IdempotencyCoordinator.java`
-- [ ] T019 [US3] Integrate `DeltaFlowMetrics` into `SagaCoordinator.java` to record saga durations, active steps, step totals, and compensations in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
-- [ ] T020 [P] [US3] Create Prometheus scrape configuration file collecting metrics from `deltaflow-backend:8080/actuator/prometheus` every 5 seconds in `docker/prometheus/prometheus.yml`
-- [ ] T021 [P] [US3] Create Grafana datasource provisioning file registering Prometheus and Jaeger in `docker/grafana/provisioning/datasources/datasources.yml`
-- [ ] T022 [P] [US3] Create Grafana dashboard provider configuration in `docker/grafana/provisioning/dashboards/dashboards.yml`
-- [ ] T023 [P] [US3] Create pre-built Grafana dashboard JSON ("DeltaFlow Operational Reliability") with panels for throughput, idempotency ratio, saga latency percentiles, and lock contention in `docker/grafana/dashboards/deltaflow-overview.json`
+- [X] T016 [P] [US3] Integration test verifying Prometheus scrape endpoint `/actuator/prometheus` exposes custom DeltaFlow metrics in `src/test/java/io/deltaflow/observability/integration/PrometheusMetricsIntegrationTest.java`
+- [X] T017 [US3] Implement `DeltaFlowMetrics.java` registering meters: `deltaflow.idempotency.requests.total`, `deltaflow.saga.duration`, `deltaflow.saga.steps.active`, `deltaflow.saga.steps.total`, `deltaflow.lock.acquisition.time`, and `deltaflow.compensations.total` in `src/main/java/io/deltaflow/observability/metrics/DeltaFlowMetrics.java`
+- [X] T018 [US3] Integrate `DeltaFlowMetrics` into `IdempotencyCoordinator.java` to record requests by status tag (`direct`, `cached`, `conflict`, `locked`) in `src/main/java/io/deltaflow/idempotency/service/IdempotencyCoordinator.java`
+- [X] T019 [US3] Integrate `DeltaFlowMetrics` into `SagaCoordinator.java` to record saga durations, active steps, step totals, and compensations in `src/main/java/io/deltaflow/saga/service/SagaCoordinator.java`
+- [X] T020 [P] [US3] Create Prometheus scrape configuration file collecting metrics from `deltaflow-backend:8080/actuator/prometheus` every 5 seconds in `docker/prometheus/prometheus.yml`
+- [X] T021 [P] [US3] Create Grafana datasource provisioning file registering Prometheus and Jaeger in `docker/grafana/provisioning/datasources/datasources.yml`
+- [X] T022 [P] [US3] Create Grafana dashboard provider configuration in `docker/grafana/provisioning/dashboards/dashboards.yml`
+- [X] T023 [P] [US3] Create pre-built Grafana dashboard JSON ("DeltaFlow Operational Reliability") with panels for throughput, idempotency ratio, saga latency percentiles, and lock contention in `docker/grafana/dashboards/deltaflow-overview.json`
 
 **Checkpoint**: User Story 3 complete — Prometheus scrapes metrics and Grafana renders live operational dashboards.
 
@@ -92,9 +92,9 @@
 
 **Independent Test**: Execute `./scripts/smoke-test.sh` against the running stack and verify all checks pass with exit code 0.
 
-- [ ] T024 [US4] Implement automated POSIX smoke verification script checking container health, executing Scenario 1 (Direct Payment), Scenario 2 (Cached Replay), Scenario 3 (Payload Tampering), Scenario 4 (Compensation), and asserting Prometheus metrics and Jaeger traces in `scripts/smoke-test.sh`
-- [ ] T025 [P] [US4] Add `smoke` target to `Makefile` invoking `scripts/smoke-test.sh` in `Makefile`
-- [ ] T026 [US4] Ensure executable permissions and validate script execution in `scripts/smoke-test.sh`
+- [X] T024 [US4] Implement automated POSIX smoke verification script checking container health, executing Scenario 1 (Direct Payment), Scenario 2 (Cached Replay), Scenario 3 (Payload Tampering), Scenario 4 (Compensation), and asserting Prometheus metrics and Jaeger traces in `scripts/smoke-test.sh`
+- [X] T025 [P] [US4] Add `smoke` target to `Makefile` invoking `scripts/smoke-test.sh` in `Makefile`
+- [X] T026 [US4] Ensure executable permissions and validate script execution in `scripts/smoke-test.sh`
 
 **Checkpoint**: User Story 4 complete — automated smoke test validates full stack health in $<15$ seconds.
 
@@ -104,10 +104,10 @@
 
 **Purpose**: System documentation, end-to-end regression testing, and constitution compliance validation
 
-- [ ] T027 [P] Update `README.md` with complete Production Packaging documentation, Docker Compose quickstart, architecture diagram, and ports table in `README.md`
-- [ ] T028 Execute quickstart validation scenarios 1–5 from `specs/007-production-packaging/quickstart.md`
-- [ ] T029 Run full regression test suite `mvn test -B` with Testcontainers verifying all unit, integration, and chaos tests pass with 0 failures
-- [ ] T030 Validate constitution compliance across all new files and update OpenAPI contracts
+- [X] T027 [P] Update `README.md` with complete Production Packaging documentation, Docker Compose quickstart, architecture diagram, and ports table in `README.md`
+- [X] T028 Execute quickstart validation scenarios 1–5 from `specs/007-production-packaging/quickstart.md`
+- [X] T029 Run full regression test suite `mvn test -B` with Testcontainers verifying all unit, integration, and chaos tests pass with 0 failures
+- [X] T030 Validate constitution compliance across all new files and update OpenAPI contracts
 
 ---
 

@@ -33,6 +33,7 @@ public class SagaCoordinator {
     private final io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster;
     private final io.deltaflow.observability.tracing.DeltaFlowTracer tracer;
     private final io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler;
+    private final io.deltaflow.observability.metrics.DeltaFlowMetrics metrics;
 
     public sealed interface SagaEvent permits
             SagaEvent.StartExecution,
@@ -68,7 +69,8 @@ public class SagaCoordinator {
             io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
             @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
             @Autowired(required = false) io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
-            @Autowired(required = false) io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler
+            @Autowired(required = false) io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler,
+            @Autowired(required = false) io.deltaflow.observability.metrics.DeltaFlowMetrics metrics
     ) {
         this.journalStore = journalStore;
         this.objectMapper = objectMapper;
@@ -77,6 +79,19 @@ public class SagaCoordinator {
         this.eventBroadcaster = eventBroadcaster;
         this.tracer = tracer;
         this.shutdownHandler = shutdownHandler;
+        this.metrics = metrics;
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
+            io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
+            io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, eventBroadcaster, tracer, shutdownHandler, null);
     }
 
     public SagaCoordinator(
@@ -135,6 +150,7 @@ public class SagaCoordinator {
         if (shutdownHandler != null) {
             shutdownHandler.registerSagaStart();
         }
+        Instant sagaStartTime = Instant.now();
         try {
             String inputJson = serialize(input);
         journalStore.createSagaInstance(sagaId, tenantId, idempotencyKey, definition.getName(), inputJson);
@@ -158,6 +174,9 @@ public class SagaCoordinator {
 
             // Write-Ahead Log: Persist intent BEFORE outbound execution
             SagaStep recordedStep = journalStore.recordStepIntent(sagaId, stepIndex, step.getName(), inputJson);
+            if (metrics != null) {
+                metrics.incrementActiveSteps();
+            }
             if (eventBroadcaster != null) {
                 eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, tenantId, Map.of(
                         "stepIndex", stepIndex,
@@ -181,6 +200,12 @@ public class SagaCoordinator {
                     tracer.recordStepSuccess(stepSpan);
                 }
             } catch (CallNotPermittedException e) {
+                if (metrics != null) {
+                    metrics.decrementActiveSteps();
+                    metrics.recordStepTransition(step.getName(), "FAILED");
+                    metrics.recordCompensation(definition.getName());
+                    metrics.recordSagaDuration(definition.getName(), "FAILED", java.time.Duration.between(sagaStartTime, Instant.now()));
+                }
                 if (tracer != null) {
                     tracer.recordStepFailure(stepSpan, e);
                 }
@@ -199,6 +224,12 @@ public class SagaCoordinator {
                 compensateSaga(definition, sagaId, tenantId, idempotencyKey, input, context, stepIndex, errorMsg, e);
                 throw e;
             } catch (Exception e) {
+                if (metrics != null) {
+                    metrics.decrementActiveSteps();
+                    metrics.recordStepTransition(step.getName(), "FAILED");
+                    metrics.recordCompensation(definition.getName());
+                    metrics.recordSagaDuration(definition.getName(), "COMPENSATED", java.time.Duration.between(sagaStartTime, Instant.now()));
+                }
                 if (tracer != null) {
                     tracer.recordStepFailure(stepSpan, e);
                 }
@@ -228,6 +259,10 @@ public class SagaCoordinator {
 
             String stepResponsePayload = serialize(stepResult);
             journalStore.recordStepCompletion(sagaId, stepIndex, stepResponsePayload);
+            if (metrics != null) {
+                metrics.decrementActiveSteps();
+                metrics.recordStepTransition(step.getName(), "COMPLETED");
+            }
             if (outboxService != null) {
                 outboxService.recordEvent("SAGA_STEP", sagaId + ":" + stepIndex, "STEP_COMPLETED", stepResponsePayload, tenantId, idempotencyKey);
             }
@@ -254,6 +289,9 @@ public class SagaCoordinator {
             eventBroadcaster.broadcast("SAGA_COMPLETED", sagaId, tenantId, Map.of(
                     "status", "COMPLETED"
             ));
+        }
+        if (metrics != null) {
+            metrics.recordSagaDuration(definition.getName(), "COMPLETED", java.time.Duration.between(sagaStartTime, Instant.now()));
         }
             log.info("Saga [{}] completed successfully", sagaId);
 
@@ -405,6 +443,9 @@ public class SagaCoordinator {
                 }
                 journalStore.recordStepCompensated(sagaId, i, "{\"status\":\"COMPENSATED\"}");
                 compensatedStepNames.add(step.getName());
+                if (metrics != null) {
+                    metrics.recordStepTransition(step.getName(), "COMPENSATED");
+                }
                 if (tracer != null) {
                     tracer.recordCompensationSpan(sagaId, i, step.getName(), failureReason);
                 }

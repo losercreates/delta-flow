@@ -22,8 +22,8 @@ Validate that all seven services initialize in deterministic order and transitio
 
 ### 1.1 Launch Stack
 ```bash
-# Bring up entire stack in background
-docker compose up -d --build
+# Bring up entire stack in background (or: make up)
+docker compose up -d
 ```
 
 ### 1.2 Verify Container Health Status

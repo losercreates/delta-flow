@@ -126,12 +126,32 @@ flowchart TD
 
 | Component | Technology | Description |
 | :--- | :--- | :--- |
-| **Language** | Java 21 LTS | Sealed Interfaces, Pattern Matching, Record Patterns |
-| **Framework** | Spring Boot 3.3.5 | Spring Web, Spring Data JPA, Hibernate 6, Actuator |
+| **Language** | Java 21 LTS | Sealed Interfaces, Pattern Matching, Record Patterns, Virtual Threads |
+| **Framework** | Spring Boot 3.3.5 | Spring Web, Spring Data JPA, Hibernate 6, Actuator, Micrometer Prometheus |
 | **Relational Storage** | PostgreSQL 16 | ACID persistence, `JSONB` journals, `PESSIMISTIC_WRITE` row locks, Flyway migrations |
 | **Distributed Cache** | Redis 7 & Redisson | High-throughput distributed locks and TTL lease management |
-| **Documentation** | Springdoc OpenAPI 2.6 | Interactive Swagger UI and OpenAPI 3.1 contract schemas |
-| **Testing** | Testcontainers 1.20 | Containerized PostgreSQL 16 and Redis 7 test environments |
+| **Distributed Tracing** | OpenTelemetry & Jaeger | W3C `traceparent` context propagation, OTLP span export, Jaeger UI |
+| **Metrics & Dashboards** | Prometheus & Grafana | Micrometer Prometheus scraping (/actuator/prometheus), pre-provisioned Grafana dashboard |
+| **Operator Dashboard** | React 18, Vite & Tailwind | Modern SPA, @xyflow/react interactive DAG graph, Nginx reverse proxy |
+| **Testing** | Testcontainers 1.20 | Containerized PostgreSQL 16, Redis 7, and Toxiproxy chaos tests |
+
+---
+
+## Production Packaging & Multi-Container Stack
+
+DeltaFlow includes a turnkey **Docker Compose v2** multi-container deployment orchestrating all seven services with declarative health checks, persistent volumes, and auto-provisioned dashboards.
+
+### Port Mappings & Services
+
+| Service | Container Name | Port | Description |
+| :--- | :--- | :--- | :--- |
+| **Operator Dashboard** | `deltaflow-frontend` | `3000` | React / Vite UI with live DAG graph (Nginx reverse proxy) |
+| **DeltaFlow Backend** | `deltaflow-backend` | `8080` | Spring Boot 3.3.5 / Java 21 runtime (`--enable-preview`) |
+| **Grafana** | `deltaflow-grafana` | `3001` | Pre-provisioned dashboards & PromQL visualizations |
+| **Jaeger UI** | `deltaflow-jaeger` | `16686` | Distributed W3C trace waterfall search and visualization |
+| **Prometheus** | `deltaflow-prometheus` | `9090` | Time-series metrics scraper (5s interval) |
+| **PostgreSQL 16** | `deltaflow-postgres` | `5432` | Relational WAL journal and ACID persistence |
+| **Redis 7** | `deltaflow-redis` | `6379` | High-performance distributed locks and lease manager |
 
 ---
 
@@ -140,9 +160,39 @@ flowchart TD
 ### Prerequisites
 - **Java 21** or higher
 - **Maven 3.9+**
-- **Docker** (for local dependencies and running integration tests)
+- **Docker & Docker Compose** (for multi-container deployment & Testcontainers)
 
-### 1. Launch Infrastructure
+---
+
+### Option A: One-Command Docker Compose Stack (Recommended)
+
+Start the entire 7-service ecosystem in the background:
+
+```bash
+# 1. Bring up all services with health checks and volume persistence
+docker compose up -d
+# (or simply: make up)
+
+# 2. Verify all containers report healthy status
+docker compose ps
+# (or: make ps)
+
+# 3. Run automated health & financial smoke test verification
+make smoke
+```
+
+When finished:
+```bash
+# Gracefully stop containers
+docker compose down
+# (or stop and purge volumes: make clean)
+```
+
+---
+
+### Option B: Local Development Workflow
+
+#### 1. Launch Infrastructure
 Start PostgreSQL and Redis:
 
 ```bash
@@ -150,14 +200,15 @@ docker run -d --name deltaflow-postgres -e POSTGRES_DB=deltaflow -e POSTGRES_USE
 docker run -d --name deltaflow-redis -p 6379:6379 redis:7-alpine
 ```
 
-### 2. Build and Run Application
+#### 2. Build and Run Backend
 ```bash
-mvn clean spring-boot:run
+mvn clean spring-boot:run -Dspring-boot.run.jvmArguments="--enable-preview"
 ```
 
 The service will start on `http://localhost:8080`.
 - **OpenAPI Swagger UI**: `http://localhost:8080/swagger-ui.html`
-- **OpenAPI Schema**: `http://localhost:8080/v3/api-docs`
+- **Prometheus Metrics**: `http://localhost:8080/actuator/prometheus`
+- **Readiness Health Probe**: `http://localhost:8080/actuator/health/readiness`
 
 ---
 

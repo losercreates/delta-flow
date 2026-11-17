@@ -1,0 +1,14 @@
+target/
+.git/
+.gitignore
+.dockerignore
+.env
+.env.local
+*.log
+*.tmp
+.idea/
+.vscode/
+frontend/
+specs/
+.specify/
+.agents/
