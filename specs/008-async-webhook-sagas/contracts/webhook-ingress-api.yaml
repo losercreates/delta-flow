@@ -1,0 +1,164 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Asynchronous Webhook Ingress API
+  version: 1.0.0
+  description: Secure cryptographic webhook callback ingress for resuming suspended financial sagas.
+paths:
+  /api/v1/sagas/{sagaId}/events/{eventName}:
+    post:
+      summary: Resume Suspended Saga with External Webhook
+      description: Delivers an external event callback to resume a saga suspended in WAITING_FOR_EVENT state.
+      operationId: deliverWebhookEvent
+      parameters:
+        - name: sagaId
+          in: path
+          required: true
+          description: Unique identifier of the target saga instance
+          schema:
+            type: string
+            format: uuid
+        - name: eventName
+          in: path
+          required: true
+          description: Name of the expected asynchronous event (e.g. 3ds-verification, fraud-approval)
+          schema:
+            type: string
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          description: HMAC-SHA256 signature of `${X-Webhook-Timestamp}.${requestBody}` computed with tenant secret
+          schema:
+            type: string
+            example: "5d41402abc4b2a76b9719d911017c592..."
+        - name: X-Webhook-Timestamp
+          in: header
+          required: true
+          description: Unix epoch millisecond timestamp for anti-replay verification (must be within 300s)
+          schema:
+            type: integer
+            format: int64
+            example: 1731934800000
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional idempotency key for deduplicating webhook retries
+          schema:
+            type: string
+        - name: X-Tenant-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            default: default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEventPayload'
+      responses:
+        '200':
+          description: Saga successfully resumed or replayed from cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResumeResponse'
+        '202':
+          description: Webhook accepted and queued for asynchronous resumption
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResumeResponse'
+        '400':
+          description: Malformed payload or missing required security headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid HMAC signature or expired timestamp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Saga instance not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — saga already completed, timed out, or compensated (zombie webhook)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Webhook indicates external rejection, triggering saga backward compensation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    WebhookEventPayload:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [APPROVED, REJECTED, SETTLED, FAILED]
+          example: APPROVED
+        providerReference:
+          type: string
+          example: "ch_3N8cXYZ"
+        data:
+          type: object
+          additionalProperties: true
+          example:
+            cavv: "AAABBBCCC=="
+            eci: "05"
+            riskScore: 12
+
+    WebhookResumeResponse:
+      type: object
+      required:
+        - sagaId
+        - eventName
+        - status
+        - processedAt
+      properties:
+        sagaId:
+          type: string
+          format: uuid
+        eventName:
+          type: string
+        status:
+          type: string
+          enum: [RESUMED, COMPLETED, REPLAYED]
+          example: RESUMED
+        processedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - status
+        - error
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object

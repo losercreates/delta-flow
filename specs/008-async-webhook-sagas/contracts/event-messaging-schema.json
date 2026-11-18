@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeltaFlowBrokerEventEnvelope",
+  "description": "Standardized schema for domain events dispatched to message brokers via the Transactional Outbox pattern.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "eventType",
+    "aggregateType",
+    "aggregateId",
+    "tenantId",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier of the outbox domain event"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "SAGA_STARTED",
+        "SAGA_SUSPENDED",
+        "SAGA_RESUMED",
+        "SAGA_COMPLETED",
+        "SAGA_TIMED_OUT",
+        "SAGA_FAILED",
+        "STEP_STARTED",
+        "STEP_COMPLETED",
+        "STEP_FAILED",
+        "COMPENSATION_TRIGGERED",
+        "COMPENSATION_COMPLETED",
+        "IDEMPOTENT_REPLAY"
+      ],
+      "description": "Domain transition classification"
+    },
+    "aggregateType": {
+      "type": "string",
+      "enum": [
+        "SAGA_INSTANCE",
+        "SAGA_STEP",
+        "IDEMPOTENCY_RECORD",
+        "PAYMENT_TRANSFER"
+      ],
+      "description": "Entity category"
+    },
+    "aggregateId": {
+      "type": "string",
+      "description": "Primary identifier used as the Kafka message partition key"
+    },
+    "tenantId": {
+      "type": "string",
+      "default": "default"
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Distributed Tracing header for cross-service context propagation"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Serialized JSON domain payload"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "retryCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isDeadLetter": {
+          "type": "boolean",
+          "default": false
+        },
+        "deadLetterReason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
