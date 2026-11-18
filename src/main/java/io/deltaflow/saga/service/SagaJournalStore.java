@@ -114,6 +114,80 @@ public class SagaJournalStore {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaStep recordStepSuspension(
+            UUID sagaId,
+            int stepIndex,
+            String stepName,
+            String awaitingEventName,
+            Duration timeout
+    ) {
+        SagaInstance instance = sagaInstanceRepository.findById(sagaId)
+                .orElseThrow(() -> new IllegalStateException("Saga instance not found: " + sagaId));
+
+        Instant deadline = timeout != null ? Instant.now().plus(timeout) : null;
+
+        instance.setStatus("SUSPENDED");
+        instance.setCurrentStep(stepIndex);
+        instance.setAwaitingEventName(awaitingEventName);
+        instance.setStepDeadline(deadline);
+        sagaInstanceRepository.save(instance);
+
+        SagaStep step = sagaStepRepository.findBySagaIdAndStepIndex(sagaId, stepIndex)
+                .orElseGet(() -> new SagaStep(UUID.randomUUID(), sagaId, stepName, stepIndex, "SUSPENDED"));
+
+        step.setStatus("SUSPENDED");
+        step.setAwaitingEventName(awaitingEventName);
+        step.setStepDeadline(deadline);
+        step.setLeaseExpiresAt(deadline);
+        SagaStep savedStep = sagaStepRepository.save(step);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        details.put("stepIndex", stepIndex);
+        details.put("stepName", stepName);
+        details.put("awaitingEventName", awaitingEventName);
+        details.put("stepDeadline", deadline != null ? deadline.toString() : null);
+        auditLogger.logEvent("SAGA_SUSPENDED", instance.getTenantId(), instance.getIdempotencyKey(), details);
+
+        return savedStep;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaInstance recordSagaResumption(UUID sagaId) {
+        SagaInstance instance = sagaInstanceRepository.findById(sagaId)
+                .orElseThrow(() -> new IllegalStateException("Saga instance not found: " + sagaId));
+
+        instance.setStatus("EXECUTING");
+        instance.setAwaitingEventName(null);
+        instance.setStepDeadline(null);
+        SagaInstance saved = sagaInstanceRepository.save(instance);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        details.put("currentStep", instance.getCurrentStep());
+        auditLogger.logEvent("SAGA_RESUMED", saved.getTenantId(), saved.getIdempotencyKey(), details);
+
+        return saved;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SagaInstance recordSagaTimeout(UUID sagaId) {
+        SagaInstance instance = sagaInstanceRepository.findById(sagaId)
+                .orElseThrow(() -> new IllegalStateException("Saga instance not found: " + sagaId));
+
+        instance.setStatus("TIMED_OUT");
+        SagaInstance saved = sagaInstanceRepository.save(instance);
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("sagaId", sagaId.toString());
+        details.put("currentStep", instance.getCurrentStep());
+        details.put("stepDeadline", instance.getStepDeadline() != null ? instance.getStepDeadline().toString() : null);
+        auditLogger.logEvent("SAGA_TIMED_OUT", saved.getTenantId(), saved.getIdempotencyKey(), details);
+
+        return saved;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public SagaStep recordStepFailure(
             UUID sagaId,
             int stepIndex,

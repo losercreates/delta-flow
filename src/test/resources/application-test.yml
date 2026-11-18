@@ -8,6 +8,16 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: deltaflow-test-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
   data:
     redis:
       host: localhost
@@ -16,6 +26,15 @@ spring:
 deltaflow:
   outbox:
     enabled: false
+  kafka:
+    enabled: ${DELTAFLOW_KAFKA_ENABLED:false}
+    domain-events-topic: deltaflow.domain-events
+    dlq-topic: deltaflow.domain-events.dlq
+    partitions: 1
+    replication-factor: 1
+  webhook:
+    secret: test-secret-key-12345
+    timestamp-tolerance-seconds: 300
   idempotency:
     enabled: true
     lease-ttl: 3s

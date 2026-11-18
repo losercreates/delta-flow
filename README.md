@@ -325,6 +325,54 @@ curl -s http://localhost:8080/api/v1/sagas/4a73e86f-5b6d-4ee8-809e-0129a089b031/
 
 ---
 
+### Scenario 5: Asynchronous Suspended Sagas & Cryptographic Webhook Ingress
+
+When a saga encounters a step requiring external callback (e.g. 3DS OTP verification or manual fraud review), it suspends, releases virtual threads and distributed lock leases, and enters `SUSPENDED` status.
+
+Deliver an authenticated webhook callback to resume forward execution:
+
+```bash
+# Compute timestamp and HMAC-SHA256 signature
+TIMESTAMP=$(date +%s%3N)
+BODY='{"status":"APPROVED","providerReference":"ch_3N8cXYZ","data":{"riskScore":12}}'
+SECRET="deltaflow-webhook-secret-key-default"
+SIGNATURE=$(echo -n "${TIMESTAMP}.${BODY}" | openssl dgst -sha256 -hmac "${SECRET}" | sed 's/^.* //')
+
+# Deliver signed webhook callback
+curl -i -X POST http://localhost:8080/api/v1/sagas/4a73e86f-5b6d-4ee8-809e-0129a089b031/events/3ds-verification \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Timestamp: ${TIMESTAMP}" \
+  -H "X-Webhook-Signature: ${SIGNATURE}" \
+  -H "Idempotency-Key: cb_3ds_4a73e86f" \
+  -d "${BODY}"
+```
+
+**Response (`200 OK`)**:
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "sagaId": "4a73e86f-5b6d-4ee8-809e-0129a089b031",
+  "eventName": "3ds-verification",
+  "status": "RESUMED",
+  "processedAt": "2026-11-18T14:45:00Z"
+}
+```
+
+*If the callback deadline expires before webhook delivery, DeltaFlow's recovery scanner detects the timeout, transitions the saga to `TIMED_OUT`, and initiates automatic backward compensation in reverse LIFO order.*
+
+---
+
+## Event-Driven Outbox Dispatching (Kafka / Redpanda)
+
+DeltaFlow includes pluggable domain event streaming to Kafka topics:
+- **Partitioned Topic Dispatch**: All saga events are deterministically partitioned by `sagaId` onto `deltaflow.domain-events`.
+- **W3C Distributed Tracing**: OpenTelemetry `traceparent` headers are injected directly into Kafka record headers.
+- **Dead-Letter Queue (DLQ)**: Poisoned events exceeding delivery retry budgets are automatically routed to `deltaflow.domain-events.dlq`.
+
+---
+
 ## Testing
 
 Run the test suite (requires Docker for Testcontainers):

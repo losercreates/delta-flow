@@ -55,6 +55,12 @@ public class SagaStep {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "awaiting_event_name", length = 128)
+    private String awaitingEventName;
+
+    @Column(name = "step_deadline")
+    private Instant stepDeadline;
+
     public SagaStep() {
     }
 
@@ -177,6 +183,22 @@ public class SagaStep {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getAwaitingEventName() {
+        return awaitingEventName;
+    }
+
+    public void setAwaitingEventName(String awaitingEventName) {
+        this.awaitingEventName = awaitingEventName;
+    }
+
+    public Instant getStepDeadline() {
+        return stepDeadline;
+    }
+
+    public void setStepDeadline(Instant stepDeadline) {
+        this.stepDeadline = stepDeadline;
     }
 }
 

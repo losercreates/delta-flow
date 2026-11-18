@@ -28,6 +28,18 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: deltaflow-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
@@ -40,6 +52,15 @@ deltaflow:
     max-payload-size: 2097152 # 2MB
   redis:
     address: ${REDIS_URL:redis://localhost:6379}
+  kafka:
+    enabled: ${DELTAFLOW_KAFKA_ENABLED:false}
+    domain-events-topic: ${DELTAFLOW_KAFKA_DOMAIN_EVENTS_TOPIC:deltaflow.domain-events}
+    dlq-topic: ${DELTAFLOW_KAFKA_DLQ_TOPIC:deltaflow.domain-events.dlq}
+    partitions: ${DELTAFLOW_KAFKA_PARTITIONS:3}
+    replication-factor: ${DELTAFLOW_KAFKA_REPLICATION_FACTOR:1}
+  webhook:
+    secret: ${DELTAFLOW_WEBHOOK_SECRET:deltaflow-webhook-secret-key-default}
+    timestamp-tolerance-seconds: ${DELTAFLOW_WEBHOOK_TIMESTAMP_TOLERANCE:300}
 
 server:
   port: 8080

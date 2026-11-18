@@ -119,6 +119,21 @@ public class SagaBuilder<I, R> {
         return this;
     }
 
+    public SagaBuilder<I, R> asyncWait(String stepName, String awaitingEventName, java.time.Duration timeout) {
+        return asyncWait(stepName, awaitingEventName, timeout, null);
+    }
+
+    public SagaBuilder<I, R> asyncWait(String stepName, String awaitingEventName, java.time.Duration timeout, BiConsumer<SagaExecutionContext, I> compensation) {
+        if (stepName == null || stepName.isBlank()) {
+            throw new IllegalArgumentException("Step name must not be null or blank");
+        }
+        Objects.requireNonNull(awaitingEventName, "Awaiting event name must not be null");
+        Objects.requireNonNull(timeout, "Timeout duration must not be null");
+        flushCurrentStep();
+        steps.add(SagaStepDefinition.asyncWait(stepName, awaitingEventName, timeout, compensation));
+        return this;
+    }
+
     public SagaDefinition<I, R> build() {
         flushCurrentStep();
         if (steps.isEmpty()) {

@@ -46,6 +46,9 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    @Column(name = "partition_key", length = 128)
+    private String partitionKey;
+
     public OutboxEvent() {
     }
 
@@ -151,6 +154,14 @@ public class OutboxEvent {
 
     public void setPublishedAt(Instant publishedAt) {
         this.publishedAt = publishedAt;
+    }
+
+    public String getPartitionKey() {
+        return partitionKey != null ? partitionKey : aggregateId;
+    }
+
+    public void setPartitionKey(String partitionKey) {
+        this.partitionKey = partitionKey;
     }
 }
 

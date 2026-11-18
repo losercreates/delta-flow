@@ -57,6 +57,12 @@ public class SagaRecoveryScanner {
         }
     }
 
+    public void registerDefinition(SagaDefinition<?, ?> definition) {
+        if (definition != null) {
+            this.sagaDefinitions.put(definition.getName(), definition);
+        }
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         if (!enabled) {
@@ -65,6 +71,7 @@ public class SagaRecoveryScanner {
         }
         log.info("Running initial startup crash recovery scan [worker: {}]", workerId);
         runRecoveryScan();
+        runSuspendedTimeoutScan();
     }
 
     @Scheduled(fixedDelayString = "${deltaflow.saga.recovery.poll-interval:5000}")
@@ -73,6 +80,7 @@ public class SagaRecoveryScanner {
             return;
         }
         runRecoveryScan();
+        runSuspendedTimeoutScan();
     }
 
     /**
@@ -141,6 +149,69 @@ public class SagaRecoveryScanner {
         }
 
         return recoveredCount;
+    }
+
+    public int runSuspendedTimeoutScan() {
+        Instant now = Instant.now();
+
+        List<SagaInstance> claimedSagas = transactionTemplate.execute(status -> {
+            List<SagaInstance> expired = sagaInstanceRepository.findExpiredSuspendedForUpdate(now);
+            if (expired.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<SagaInstance> claimed = new ArrayList<>(expired.size());
+            for (SagaInstance saga : expired) {
+                saga.setStatus("TIMED_OUT");
+                saga.setUpdatedAt(Instant.now());
+                claimed.add(sagaInstanceRepository.save(saga));
+            }
+            return claimed;
+        });
+
+        if (claimedSagas == null || claimedSagas.isEmpty()) {
+            return 0;
+        }
+
+        log.info("Recovery scanner [worker: {}] claimed {} timed-out suspended saga(s)", workerId, claimedSagas.size());
+        int timedOutCompensatedCount = 0;
+
+        for (SagaInstance instance : claimedSagas) {
+            UUID sagaId = instance.getSagaId();
+            String tenantId = instance.getTenantId();
+            String idempotencyKey = instance.getIdempotencyKey();
+            String sagaType = instance.getSagaType();
+
+            auditLogger.logEvent("SAGA_TIMED_OUT", tenantId, idempotencyKey, Map.of(
+                    "sagaId", sagaId.toString(),
+                    "workerId", workerId,
+                    "deadline", instance.getStepDeadline() != null ? instance.getStepDeadline().toString() : "",
+                    "awaitingEvent", instance.getAwaitingEventName() != null ? instance.getAwaitingEventName() : ""
+            ));
+
+            SagaDefinition<?, ?> definition = sagaDefinitions.get(sagaType);
+            if (definition == null && sagaCoordinator != null) {
+                definition = sagaCoordinator.getDefinition(sagaType).orElse(null);
+            }
+            if (definition == null) {
+                log.error("Unknown saga type [{}] for timed-out saga [{}], skipping compensation", sagaType, sagaId);
+                continue;
+            }
+
+            try {
+                sagaCoordinator.recoverSaga(definition, instance);
+
+                auditLogger.logEvent("TIMEOUT_COMPENSATION_COMPLETED", tenantId, idempotencyKey, Map.of(
+                        "sagaId", sagaId.toString(),
+                        "workerId", workerId,
+                        "recoveredStatus", "COMPENSATED"
+                ));
+                timedOutCompensatedCount++;
+            } catch (Exception e) {
+                log.error("Failed to compensate timed-out saga [{}]: {}", sagaId, e.getMessage(), e);
+            }
+        }
+
+        return timedOutCompensatedCount;
     }
 
     public String getWorkerId() {

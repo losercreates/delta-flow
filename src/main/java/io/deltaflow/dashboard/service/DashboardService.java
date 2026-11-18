@@ -84,6 +84,8 @@ public class DashboardService {
                     step.getRequestPayload(),
                     step.getResponsePayload(),
                     step.getErrorDetails(),
+                    step.getAwaitingEventName(),
+                    step.getStepDeadline(),
                     step.getCreatedAt(),
                     step.getUpdatedAt()
             ));

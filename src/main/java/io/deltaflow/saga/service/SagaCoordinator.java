@@ -34,6 +34,8 @@ public class SagaCoordinator {
     private final io.deltaflow.observability.tracing.DeltaFlowTracer tracer;
     private final io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler;
     private final io.deltaflow.observability.metrics.DeltaFlowMetrics metrics;
+    private final io.deltaflow.idempotency.lock.DistributedLockManager lockManager;
+    private final Map<String, SagaDefinition<?, ?>> sagaDefinitions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public sealed interface SagaEvent permits
             SagaEvent.StartExecution,
@@ -70,7 +72,9 @@ public class SagaCoordinator {
             @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
             @Autowired(required = false) io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
             @Autowired(required = false) io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler,
-            @Autowired(required = false) io.deltaflow.observability.metrics.DeltaFlowMetrics metrics
+            @Autowired(required = false) io.deltaflow.observability.metrics.DeltaFlowMetrics metrics,
+            @Autowired(required = false) io.deltaflow.idempotency.lock.DistributedLockManager lockManager,
+            @Autowired(required = false) List<SagaDefinition<?, ?>> definitions
     ) {
         this.journalStore = journalStore;
         this.objectMapper = objectMapper;
@@ -80,6 +84,39 @@ public class SagaCoordinator {
         this.tracer = tracer;
         this.shutdownHandler = shutdownHandler;
         this.metrics = metrics;
+        this.lockManager = lockManager;
+        if (definitions != null) {
+            for (SagaDefinition<?, ?> def : definitions) {
+                this.sagaDefinitions.put(def.getName(), def);
+            }
+        }
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            @Autowired(required = false) io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
+            @Autowired(required = false) io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
+            @Autowired(required = false) io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler,
+            @Autowired(required = false) io.deltaflow.observability.metrics.DeltaFlowMetrics metrics,
+            @Autowired(required = false) io.deltaflow.idempotency.lock.DistributedLockManager lockManager
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, eventBroadcaster, tracer, shutdownHandler, metrics, lockManager, null);
+    }
+
+    public SagaCoordinator(
+            SagaJournalStore journalStore,
+            ObjectMapper objectMapper,
+            io.deltaflow.outbox.service.OutboxService outboxService,
+            io.deltaflow.resilience.ResiliencePolicyRegistry resiliencePolicyRegistry,
+            io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster,
+            io.deltaflow.observability.tracing.DeltaFlowTracer tracer,
+            io.deltaflow.observability.health.GracefulShutdownHandler shutdownHandler,
+            io.deltaflow.observability.metrics.DeltaFlowMetrics metrics
+    ) {
+        this(journalStore, objectMapper, outboxService, resiliencePolicyRegistry, eventBroadcaster, tracer, shutdownHandler, metrics, null);
     }
 
     public SagaCoordinator(
@@ -136,6 +173,16 @@ public class SagaCoordinator {
         this(journalStore, objectMapper, null, null);
     }
 
+    public void registerDefinition(SagaDefinition<?, ?> definition) {
+        if (definition != null) {
+            this.sagaDefinitions.put(definition.getName(), definition);
+        }
+    }
+
+    public Optional<SagaDefinition<?, ?>> getDefinition(String sagaType) {
+        return Optional.ofNullable(sagaDefinitions.get(sagaType));
+    }
+
     public <I, R> R executeSaga(
             SagaDefinition<I, R> definition,
             UUID sagaId,
@@ -153,23 +200,271 @@ public class SagaCoordinator {
         Instant sagaStartTime = Instant.now();
         try {
             String inputJson = serialize(input);
-        journalStore.createSagaInstance(sagaId, tenantId, idempotencyKey, definition.getName(), inputJson);
-        if (outboxService != null) {
-            outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_STARTED", inputJson, tenantId, idempotencyKey);
+            journalStore.createSagaInstance(sagaId, tenantId, idempotencyKey, definition.getName(), inputJson);
+            if (outboxService != null) {
+                outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_STARTED", inputJson, tenantId, idempotencyKey);
+            }
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("SAGA_STARTED", sagaId, tenantId, Map.of(
+                        "sagaType", definition.getName(),
+                        "status", "EXECUTING",
+                        "idempotencyKey", idempotencyKey
+                ));
+            }
+
+            SagaExecutionContext context = new SagaExecutionContext(sagaId, tenantId, idempotencyKey);
+            return executeForwardSteps(definition, sagaId, tenantId, idempotencyKey, input, inputJson, context, 0, sagaStartTime);
+        } finally {
+            if (shutdownHandler != null) {
+                shutdownHandler.registerSagaEnd();
+            }
         }
-        if (eventBroadcaster != null) {
-            eventBroadcaster.broadcast("SAGA_STARTED", sagaId, tenantId, Map.of(
-                    "sagaType", definition.getName(),
-                    "status", "EXECUTING",
-                    "idempotencyKey", idempotencyKey
-            ));
+    }
+
+    public Object resumeSaga(
+            UUID sagaId,
+            String tenantId,
+            String eventName,
+            Object eventPayload
+    ) {
+        SagaInstance instance = journalStore.findSaga(sagaId)
+                .orElseThrow(() -> new IllegalArgumentException("Saga instance not found: " + sagaId));
+        String sagaType = instance.getSagaType();
+        SagaDefinition<?, ?> definition = sagaDefinitions.get(sagaType);
+        if (definition == null) {
+            throw new IllegalStateException("No registered SagaDefinition found for sagaType: " + sagaType);
+        }
+        return resumeSaga((SagaDefinition<Object, Object>) definition, sagaId, tenantId, eventName, eventPayload);
+    }
+
+    public <I, R> R resumeSaga(
+            SagaDefinition<I, R> definition,
+            UUID sagaId,
+            String tenantId,
+            String eventName,
+            Object eventPayload
+    ) {
+        Objects.requireNonNull(definition, "Saga definition must not be null");
+        Objects.requireNonNull(sagaId, "SagaId must not be null");
+
+        SagaInstance instance = journalStore.findSaga(sagaId)
+                .orElseThrow(() -> new IllegalArgumentException("Saga instance not found: " + sagaId));
+
+        String effectiveTenantId = (tenantId == null || tenantId.isBlank()) ? instance.getTenantId() : tenantId;
+        String idempotencyKey = instance.getIdempotencyKey();
+
+        if ("COMPLETED".equals(instance.getStatus())) {
+            log.info("Saga [{}] is already COMPLETED, returning cached result", sagaId);
+            if (instance.getResultPayload() != null) {
+                try {
+                    return (R) objectMapper.readValue(instance.getResultPayload(), Object.class);
+                } catch (Exception e) {
+                    log.warn("Failed to deserialize completed saga result: {}", e.getMessage());
+                }
+            }
+            return null;
         }
 
-        SagaExecutionContext context = new SagaExecutionContext(sagaId, tenantId, idempotencyKey);
+        if ("TIMED_OUT".equals(instance.getStatus()) || "COMPENSATING".equals(instance.getStatus())
+                || "COMPENSATED".equals(instance.getStatus()) || "FAILED".equals(instance.getStatus())) {
+            log.warn("Zombie webhook rejected for saga [{}] in terminal/compensating state [{}]", sagaId, instance.getStatus());
+            throw new IllegalStateException("ZOMBIE_WEBHOOK_REJECTED: Saga " + sagaId + " is in terminal/compensating state " + instance.getStatus());
+        }
+
+        if (!"SUSPENDED".equals(instance.getStatus())) {
+            throw new IllegalStateException("Saga " + sagaId + " is not SUSPENDED; current status: " + instance.getStatus());
+        }
+
+        if (instance.getAwaitingEventName() != null && !instance.getAwaitingEventName().equals(eventName)) {
+            throw new IllegalArgumentException("Saga is awaiting event [" + instance.getAwaitingEventName() + "] but received [" + eventName + "]");
+        }
+
+        String lockToken = null;
+        if (lockManager != null) {
+            Optional<String> tokenOpt = lockManager.acquireLock(effectiveTenantId, idempotencyKey, java.time.Duration.ofSeconds(30));
+            if (tokenOpt.isPresent()) {
+                lockToken = tokenOpt.get();
+            } else {
+                log.warn("Could not acquire distributed lock for saga resumption: tenant={}, key={}", effectiveTenantId, idempotencyKey);
+            }
+        }
+
+        if (shutdownHandler != null) {
+            shutdownHandler.registerSagaStart();
+        }
+        Instant sagaStartTime = Instant.now();
+
+        try {
+            int suspendedIndex = instance.getCurrentStep();
+
+            // Check if webhook payload indicates rejection
+            boolean isRejection = false;
+            String rejectionReason = null;
+            if (eventPayload instanceof Map<?, ?> map) {
+                Object statusObj = map.get("status");
+                if (statusObj != null) {
+                    String s = statusObj.toString();
+                    if ("REJECTED".equalsIgnoreCase(s) || "FAILED".equalsIgnoreCase(s)) {
+                        isRejection = true;
+                        rejectionReason = "External event status: " + s;
+                    }
+                }
+            } else if (eventPayload instanceof String jsonStr && (jsonStr.startsWith("{") || jsonStr.startsWith("["))) {
+                try {
+                    Map<?, ?> map = objectMapper.readValue(jsonStr, Map.class);
+                    Object statusObj = map.get("status");
+                    if (statusObj != null) {
+                        String s = statusObj.toString();
+                        if ("REJECTED".equalsIgnoreCase(s) || "FAILED".equalsIgnoreCase(s)) {
+                            isRejection = true;
+                            rejectionReason = "External event status: " + s;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            I input = null;
+            if (instance.getPayload() != null) {
+                try {
+                    if (definition.getInputType() != null) {
+                        input = objectMapper.readValue(instance.getPayload(), definition.getInputType());
+                    } else {
+                        input = (I) objectMapper.readValue(instance.getPayload(), Object.class);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to deserialize input payload for saga [{}]: {}", sagaId, e.getMessage());
+                }
+            }
+
+            SagaExecutionContext context = new SagaExecutionContext(sagaId, effectiveTenantId, idempotencyKey);
+            List<SagaStep> recordedSteps = journalStore.getStepsForSaga(sagaId);
+            for (SagaStep s : recordedSteps) {
+                if ("COMPLETED".equals(s.getStatus()) && s.getResponsePayload() != null) {
+                    try {
+                        Object respObj = objectMapper.readValue(s.getResponsePayload(), Object.class);
+                        context = context.withStepResult(s.getStepName(), respObj);
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            if (isRejection) {
+                log.warn("Saga [{}]: Webhook payload indicates rejection at step {} [{}]: {}", sagaId, suspendedIndex, eventName, rejectionReason);
+                journalStore.recordStepFailure(sagaId, suspendedIndex, rejectionReason);
+                if (eventBroadcaster != null) {
+                    eventBroadcaster.broadcast("STEP_STATE_CHANGED", sagaId, effectiveTenantId, Map.of(
+                            "stepIndex", suspendedIndex,
+                            "eventName", eventName,
+                            "status", "FAILED",
+                            "error", rejectionReason
+                    ));
+                }
+                compensateSaga(definition, sagaId, effectiveTenantId, idempotencyKey, input, context, suspendedIndex, rejectionReason);
+                throw new io.deltaflow.saga.exception.SagaCompensatedException(
+                        sagaId,
+                        idempotencyKey,
+                        eventName,
+                        rejectionReason,
+                        Collections.emptyList(),
+                        null
+                );
+            }
+
+            // Normal resumption
+            SagaStep suspendedStep = recordedSteps.stream()
+                    .filter(s -> s.getStepIndex() == suspendedIndex)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Suspended step not found for saga: " + sagaId + " at index: " + suspendedIndex));
+
+            validateStepFencing(sagaId, suspendedIndex, suspendedStep.getFencingToken());
+
+            String payloadJson = serialize(eventPayload);
+            journalStore.recordStepCompletion(sagaId, suspendedIndex, payloadJson);
+            journalStore.recordSagaResumption(sagaId);
+
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("SAGA_RESUMED", sagaId, effectiveTenantId, Map.of(
+                        "stepIndex", suspendedIndex,
+                        "eventName", eventName,
+                        "status", "EXECUTING"
+                ));
+            }
+            if (outboxService != null) {
+                outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_RESUMED", payloadJson, effectiveTenantId, idempotencyKey);
+            }
+
+            context = context.withStepResult(suspendedStep.getStepName(), eventPayload);
+
+            return executeForwardSteps(definition, sagaId, effectiveTenantId, idempotencyKey, input, instance.getPayload(), context, suspendedIndex + 1, sagaStartTime);
+        } finally {
+            if (lockManager != null && lockToken != null) {
+                lockManager.releaseLock(effectiveTenantId, idempotencyKey, lockToken);
+            }
+            if (shutdownHandler != null) {
+                shutdownHandler.registerSagaEnd();
+            }
+        }
+    }
+
+    private <I, R> R executeForwardSteps(
+            SagaDefinition<I, R> definition,
+            UUID sagaId,
+            String tenantId,
+            String idempotencyKey,
+            I input,
+            String inputJson,
+            SagaExecutionContext initialContext,
+            int startingStepIndex,
+            Instant sagaStartTime
+    ) {
+        SagaExecutionContext context = initialContext;
         List<SagaStepDefinition<I>> steps = definition.getSteps();
 
-        for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+        for (int stepIndex = startingStepIndex; stepIndex < steps.size(); stepIndex++) {
             SagaStepDefinition<I> step = steps.get(stepIndex);
+
+            if (step.isAsyncWait()) {
+                log.info("Saga [{}]: Step {} [{}] is an asynchronous wait for event [{}]",
+                        sagaId, stepIndex, step.getName(), step.getAwaitingEventName());
+
+                SagaStep suspendedStep = journalStore.recordStepSuspension(
+                        sagaId,
+                        stepIndex,
+                        step.getName(),
+                        step.getAwaitingEventName(),
+                        step.getTimeout()
+                );
+
+                if (eventBroadcaster != null) {
+                    eventBroadcaster.broadcast("SAGA_SUSPENDED", sagaId, tenantId, Map.of(
+                            "stepIndex", stepIndex,
+                            "stepName", step.getName(),
+                            "status", "SUSPENDED",
+                            "awaitingEvent", step.getAwaitingEventName(),
+                            "stepDeadline", suspendedStep.getStepDeadline() != null ? suspendedStep.getStepDeadline().toString() : ""
+                    ));
+                }
+
+                if (outboxService != null) {
+                    outboxService.recordEvent("SAGA_INSTANCE", sagaId.toString(), "SAGA_SUSPENDED",
+                            "{\"step\":\"" + step.getName() + "\",\"awaitingEvent\":\"" + step.getAwaitingEventName() + "\"}",
+                            tenantId, idempotencyKey);
+                }
+
+                if (lockManager != null) {
+                    lockManager.releaseLock(tenantId, idempotencyKey, null);
+                }
+
+                throw new io.deltaflow.saga.exception.SagaSuspendedException(
+                        sagaId,
+                        tenantId,
+                        idempotencyKey,
+                        stepIndex,
+                        step.getName(),
+                        step.getAwaitingEventName(),
+                        suspendedStep.getStepDeadline()
+                );
+            }
+
             log.info("Saga [{}]: Persisting WAL intent for step {} [{}]", sagaId, stepIndex, step.getName());
 
             // Write-Ahead Log: Persist intent BEFORE outbound execution
@@ -293,14 +588,9 @@ public class SagaCoordinator {
         if (metrics != null) {
             metrics.recordSagaDuration(definition.getName(), "COMPLETED", java.time.Duration.between(sagaStartTime, Instant.now()));
         }
-            log.info("Saga [{}] completed successfully", sagaId);
+        log.info("Saga [{}] completed successfully", sagaId);
 
-            return finalResult;
-        } finally {
-            if (shutdownHandler != null) {
-                shutdownHandler.registerSagaEnd();
-            }
-        }
+        return finalResult;
     }
 
     private <I> Object executeStepAction(SagaStepDefinition<I> step, SagaExecutionContext context, I input) {
@@ -563,6 +853,9 @@ public class SagaCoordinator {
             } else if ("EXECUTING".equals(instance.getStatus())) {
                 int stepIdxToCompensate = lastStep != null ? lastStep.getStepIndex() : 0;
                 compensateSaga(definition, sagaId, instance.getTenantId(), instance.getIdempotencyKey(), input, context, stepIdxToCompensate, "Crash recovery after expired lease");
+            } else if ("TIMED_OUT".equals(instance.getStatus()) || "SUSPENDED".equals(instance.getStatus())) {
+                int stepIdxToCompensate = instance.getCurrentStep();
+                compensateSaga(definition, sagaId, instance.getTenantId(), instance.getIdempotencyKey(), input, context, stepIdxToCompensate, "Asynchronous step deadline expired");
             }
         } catch (io.deltaflow.saga.exception.SagaCompensatedException e) {
             log.info("Saga [{}] successfully recovered to COMPENSATED state", sagaId);
@@ -594,6 +887,20 @@ public class SagaCoordinator {
                 case SagaEvent.StartCompensation sc -> cmp;
                 case SagaEvent.CompleteCompensation cc -> new SagaState.Compensated(cmp.sagaId(), cmp.tenantId(), cc.compensationResult(), Instant.now());
             };
+            case SagaState.Suspended susp -> switch (event) {
+                case SagaEvent.StartExecution e -> new SagaState.Executing(susp.sagaId(), susp.tenantId(), e.stepIndex(), e.stepName(), Instant.now());
+                case SagaEvent.FailSaga f -> new SagaState.Failed(susp.sagaId(), susp.tenantId(), susp.currentStepIndex(), f.reason(), Instant.now());
+                case SagaEvent.StartCompensation sc -> new SagaState.Compensating(susp.sagaId(), susp.tenantId(), susp.currentStepIndex(), sc.cause());
+                case SagaEvent.CompleteCompensation cc -> new SagaState.Compensated(susp.sagaId(), susp.tenantId(), cc.compensationResult(), Instant.now());
+                case SagaEvent.CompleteSaga c -> new SagaState.Completed(susp.sagaId(), susp.tenantId(), c.result(), Instant.now());
+            };
+            case SagaState.TimedOut to -> switch (event) {
+                case SagaEvent.StartCompensation sc -> new SagaState.Compensating(to.sagaId(), to.tenantId(), to.failedStepIndex(), sc.cause());
+                case SagaEvent.CompleteCompensation cc -> new SagaState.Compensated(to.sagaId(), to.tenantId(), cc.compensationResult(), Instant.now());
+                case SagaEvent.FailSaga f -> new SagaState.Failed(to.sagaId(), to.tenantId(), to.failedStepIndex(), f.reason(), Instant.now());
+                case SagaEvent.StartExecution e -> to;
+                case SagaEvent.CompleteSaga c -> new SagaState.Completed(to.sagaId(), to.tenantId(), c.result(), Instant.now());
+            };
             case SagaState.Compensated cd -> cd;
         };
     }
@@ -613,6 +920,13 @@ public class SagaCoordinator {
                 case StepEvent.StartCompensation sc -> new SagaStepState.Compensating(ex.stepId(), ex.stepIndex(), ex.stepName(), Instant.now());
                 case StepEvent.Compensate cm -> new SagaStepState.Compensated(ex.stepId(), ex.stepIndex(), ex.stepName(), Instant.now());
                 case StepEvent.Start s -> ex;
+            };
+            case SagaStepState.Suspended susp -> switch (event) {
+                case StepEvent.Complete cp -> new SagaStepState.Completed(susp.stepId(), susp.stepIndex(), susp.stepName(), cp.responsePayload(), Instant.now());
+                case StepEvent.Fail fl -> new SagaStepState.Failed(susp.stepId(), susp.stepIndex(), susp.stepName(), fl.errorDetails(), Instant.now());
+                case StepEvent.StartCompensation sc -> new SagaStepState.Compensating(susp.stepId(), susp.stepIndex(), susp.stepName(), Instant.now());
+                case StepEvent.Compensate cm -> new SagaStepState.Compensated(susp.stepId(), susp.stepIndex(), susp.stepName(), Instant.now());
+                case StepEvent.Start s -> new SagaStepState.Executing(susp.stepId(), susp.stepIndex(), susp.stepName(), s.requestPayload(), Instant.now());
             };
             case SagaStepState.Completed cp -> switch (event) {
                 case StepEvent.StartCompensation sc -> new SagaStepState.Compensating(cp.stepId(), cp.stepIndex(), cp.stepName(), Instant.now());
@@ -638,7 +952,10 @@ public class SagaCoordinator {
             return null;
         }
         if (object instanceof String s) {
-            return s;
+            String trimmed = s.trim();
+            if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+                return trimmed;
+            }
         }
         try {
             return objectMapper.writeValueAsString(object);

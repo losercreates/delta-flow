@@ -12,6 +12,8 @@ volumes:
     name: deltaflow-db-data
   deltaflow-redis-data:
     name: deltaflow-redis-data
+  deltaflow-kafka-data:
+    name: deltaflow-kafka-data
   prometheus-data:
     name: prometheus-data
   grafana-data:
@@ -63,6 +65,40 @@ services:
       - deltaflow-network
 
   # ----------------------------------------------------------------------------
+  # 2b. Event-Driven Message Broker (Redpanda / Kafka-Compatible)
+  # ----------------------------------------------------------------------------
+  deltaflow-kafka:
+    container_name: deltaflow-kafka
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp
+      - "1"
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://deltaflow-kafka:29092,OUTSIDE://localhost:9092
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - deltaflow-kafka-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -i healthy || exit 0"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - deltaflow-network
+
+  # ----------------------------------------------------------------------------
   # 3. Distributed Tracing Collector & UI (Jaeger All-In-One with OTLP)
   # ----------------------------------------------------------------------------
   jaeger:
@@ -93,6 +129,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       REDIS_URL: redis://deltaflow-redis:6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: deltaflow-kafka:29092
+      DELTAFLOW_KAFKA_ENABLED: "true"
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:---enable-preview -Xms512m -Xmx1024m}

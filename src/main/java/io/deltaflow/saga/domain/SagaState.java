@@ -7,6 +7,8 @@ import java.util.UUID;
 public sealed interface SagaState permits 
     SagaState.Pending, 
     SagaState.Executing, 
+    SagaState.Suspended,
+    SagaState.TimedOut,
     SagaState.Completed, 
     SagaState.Failed, 
     SagaState.Compensating,
@@ -27,6 +29,24 @@ public sealed interface SagaState permits
         int currentStepIndex, 
         String currentStepName, 
         Instant stepStartedAt
+    ) implements SagaState {}
+
+    record Suspended(
+        UUID sagaId, 
+        String tenantId, 
+        int currentStepIndex, 
+        String currentStepName, 
+        String awaitingEventName, 
+        Instant stepDeadline, 
+        Instant suspendedAt
+    ) implements SagaState {}
+
+    record TimedOut(
+        UUID sagaId, 
+        String tenantId, 
+        int failedStepIndex, 
+        String failureReason, 
+        Instant timedOutAt
     ) implements SagaState {}
 
     record Completed(

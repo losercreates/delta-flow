@@ -110,6 +110,9 @@ public class OutboxPublisher {
 
                     if (retries >= maxRetries) {
                         event.setStatus(OutboxStatus.DEAD_LETTER.name());
+                        if (domainEventPublisher instanceof KafkaDomainEventPublisher kafkaPub) {
+                            kafkaPub.publishToDeadLetterQueue(event, errorMsg);
+                        }
                         Map<String, Object> dlDetails = new HashMap<>();
                         dlDetails.put("eventId", event.getEventId().toString());
                         dlDetails.put("retryCount", retries);

@@ -38,6 +38,17 @@ public interface SagaInstanceRepository extends JpaRepository<SagaInstance, UUID
     """)
     List<SagaInstance> findExpiredInFlightForUpdate(@Param("threshold") Instant threshold);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
+    @Query("""
+        SELECT s FROM SagaInstance s 
+        WHERE s.status = 'SUSPENDED' 
+          AND s.stepDeadline IS NOT NULL 
+          AND s.stepDeadline < :now
+        ORDER BY s.stepDeadline ASC
+    """)
+    List<SagaInstance> findExpiredSuspendedForUpdate(@Param("now") Instant now);
+
     @Query("""
         SELECT s FROM SagaInstance s
         WHERE (:status IS NULL OR s.status = :status)

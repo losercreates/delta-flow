@@ -14,14 +14,25 @@ public record SagaStepDefinition<I>(
         BiConsumer<SagaExecutionContext, I> compensation,
         String circuitBreakerName,
         String retryName,
-        List<ParallelBranchDefinition<I>> parallelBranches
+        List<ParallelBranchDefinition<I>> parallelBranches,
+        boolean isAsyncWait,
+        String awaitingEventName,
+        java.time.Duration timeout
 ) {
     public SagaStepDefinition(String name, BiFunction<SagaExecutionContext, I, ?> action, BiConsumer<SagaExecutionContext, I> compensation) {
-        this(name, action, compensation, null, null, List.of());
+        this(name, action, compensation, null, null, List.of(), false, null, null);
     }
 
     public SagaStepDefinition(String name, BiFunction<SagaExecutionContext, I, ?> action, BiConsumer<SagaExecutionContext, I> compensation, String circuitBreakerName, String retryName) {
-        this(name, action, compensation, circuitBreakerName, retryName, List.of());
+        this(name, action, compensation, circuitBreakerName, retryName, List.of(), false, null, null);
+    }
+
+    public SagaStepDefinition(String name, BiFunction<SagaExecutionContext, I, ?> action, BiConsumer<SagaExecutionContext, I> compensation, String circuitBreakerName, String retryName, List<ParallelBranchDefinition<I>> parallelBranches) {
+        this(name, action, compensation, circuitBreakerName, retryName, parallelBranches, false, null, null);
+    }
+
+    public static <I> SagaStepDefinition<I> asyncWait(String name, String awaitingEventName, java.time.Duration timeout, BiConsumer<SagaExecutionContext, I> compensation) {
+        return new SagaStepDefinition<>(name, (ctx, input) -> null, compensation, null, null, List.of(), true, awaitingEventName, timeout);
     }
 
     public SagaStepDefinition {
@@ -62,5 +73,17 @@ public record SagaStepDefinition<I>(
 
     public boolean isParallel() {
         return parallelBranches != null && !parallelBranches.isEmpty();
+    }
+
+    public boolean isAsyncWait() {
+        return isAsyncWait;
+    }
+
+    public String getAwaitingEventName() {
+        return awaitingEventName;
+    }
+
+    public java.time.Duration getTimeout() {
+        return timeout;
     }
 }
