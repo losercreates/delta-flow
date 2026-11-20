@@ -1,18 +1,22 @@
 export type SagaStatus =
   | 'PENDING'
   | 'EXECUTING'
+  | 'SUSPENDED'
   | 'COMPLETED'
   | 'COMPENSATING'
   | 'COMPENSATED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'TIMED_OUT';
 
 export type StepStatus =
   | 'NOT_STARTED'
   | 'EXECUTING'
+  | 'SUSPENDED'
   | 'COMPLETED'
   | 'COMPENSATING'
   | 'COMPENSATED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'TIMED_OUT';
 
 export type InterventionAction = 'FORCE_COMPENSATE' | 'FORCE_RETRY';
 
@@ -24,10 +28,20 @@ export type LiveEventType =
   | 'SAGA_STARTED'
   | 'SAGA_STATE_CHANGED'
   | 'STEP_STATE_CHANGED'
+  | 'SAGA_SUSPENDED'
+  | 'SAGA_RESUMED'
+  | 'SAGA_TIMED_OUT'
   | 'SAGA_COMPENSATED'
+  | 'SAGA_COMPLETED'
   | 'OUTBOX_PUBLISHED'
   | 'OUTBOX_DEAD_LETTER'
+  | 'OUTBOX_REPLAYED'
   | 'CIRCUIT_BREAKER_TRIPPED'
+  | 'CIRCUIT_BREAKER_RESET'
+  | 'CIRCUIT_BREAKER_TRANSITIONED'
+  | 'CHAOS_INJECTED'
+  | 'CHAOS_HEALED'
+  | 'INVARIANT_CHECKED'
   | 'OPERATOR_INTERVENTION';
 
 export interface SagaSummaryDto {
@@ -132,4 +146,23 @@ export interface DashboardLiveEvent {
   tenantId: string;
   timestamp: string;
   payload: Record<string, unknown>;
+}
+
+export interface DeadLetterOutboxEventDto {
+  eventId: string;
+  sagaId: string;
+  tenantId: string;
+  eventType: string;
+  topic: string;
+  partitionKey: string;
+  payload: string;
+  retryCount: number;
+  errorDetails: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DlqReplayRequest {
+  operatorId: string;
+  justification: string;
 }

@@ -34,6 +34,7 @@ public class SagaRecoveryScanner {
     private final TransactionTemplate transactionTemplate;
     private final Map<String, SagaDefinition<?, ?>> sagaDefinitions = new ConcurrentHashMap<>();
     private final String workerId = UUID.randomUUID().toString();
+    private io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster;
 
     @Value("${deltaflow.saga.recovery.enabled:true}")
     private boolean enabled;
@@ -61,6 +62,11 @@ public class SagaRecoveryScanner {
         if (definition != null) {
             this.sagaDefinitions.put(definition.getName(), definition);
         }
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEventBroadcaster(io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster) {
+        this.eventBroadcaster = eventBroadcaster;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -187,6 +193,14 @@ public class SagaRecoveryScanner {
                     "deadline", instance.getStepDeadline() != null ? instance.getStepDeadline().toString() : "",
                     "awaitingEvent", instance.getAwaitingEventName() != null ? instance.getAwaitingEventName() : ""
             ));
+
+            if (eventBroadcaster != null) {
+                eventBroadcaster.broadcast("SAGA_TIMED_OUT", sagaId, tenantId, Map.of(
+                        "status", "TIMED_OUT",
+                        "deadline", instance.getStepDeadline() != null ? instance.getStepDeadline().toString() : "",
+                        "awaitingEvent", instance.getAwaitingEventName() != null ? instance.getAwaitingEventName() : ""
+                ));
+            }
 
             SagaDefinition<?, ?> definition = sagaDefinitions.get(sagaType);
             if (definition == null && sagaCoordinator != null) {

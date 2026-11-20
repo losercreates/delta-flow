@@ -71,4 +71,20 @@ public class DashboardApiController {
     public ResponseEntity<TelemetrySummaryDto> getTelemetry() {
         return ResponseEntity.ok(dashboardService.getTelemetry());
     }
+
+    @GetMapping("/dlq")
+    public ResponseEntity<List<DeadLetterOutboxEventDto>> listDeadLetterEvents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(dashboardService.listDeadLetterEvents(page, size));
+    }
+
+    @PostMapping("/dlq/{eventId}/replay")
+    public ResponseEntity<DeadLetterOutboxEventDto> replayDeadLetterEvent(
+            @PathVariable UUID eventId,
+            @Valid @RequestBody DlqReplayRequest request
+    ) {
+        return ResponseEntity.ok(dashboardService.replayDeadLetterEvent(eventId, request));
+    }
 }

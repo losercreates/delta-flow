@@ -75,6 +75,10 @@ public class DashboardEventBroadcaster {
         broadcast(event);
     }
 
+    public void broadcast(String eventType, Object payload) {
+        broadcast(eventType, null, null, payload);
+    }
+
     @Scheduled(fixedRate = 15000)
     public void sendHeartbeat() {
         if (emitters.isEmpty()) {

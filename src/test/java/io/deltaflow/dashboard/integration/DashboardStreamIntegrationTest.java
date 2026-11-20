@@ -49,7 +49,7 @@ public class DashboardStreamIntegrationTest extends AbstractIntegrationTest {
         SseEmitter emitter = eventBroadcaster.subscribe();
         assertThat(eventBroadcaster.getSubscriberCount()).isEqualTo(initialSubscribers + 1);
 
-        // Broadcast an event
+        // Broadcast saga state transitions
         UUID sagaId = UUID.randomUUID();
         DashboardLiveEvent liveEvent = DashboardLiveEvent.of(
                 "SAGA_STATE_CHANGED",
@@ -58,8 +58,28 @@ public class DashboardStreamIntegrationTest extends AbstractIntegrationTest {
                 Map.of("status", "EXECUTING")
         );
 
-        // Verify broadcast executes without error
         eventBroadcaster.broadcast(liveEvent);
+
+        // Broadcast suspended event
+        DashboardLiveEvent suspendedEvent = DashboardLiveEvent.of(
+                "SAGA_SUSPENDED",
+                sagaId,
+                "default",
+                Map.of("status", "SUSPENDED", "awaitingEvent", "3DS_VERIFICATION")
+        );
+        eventBroadcaster.broadcast(suspendedEvent);
+
+        // Broadcast resumed event
+        DashboardLiveEvent resumedEvent = DashboardLiveEvent.of(
+                "SAGA_RESUMED",
+                sagaId,
+                "default",
+                Map.of("status", "EXECUTING")
+        );
+        eventBroadcaster.broadcast(resumedEvent);
+
+        // Broadcast heartbeat
+        eventBroadcaster.sendHeartbeat();
 
         // Cleanup
         emitter.complete();

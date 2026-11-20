@@ -67,6 +67,22 @@ const statusStyles: Record<
     badgeText: 'text-rose-300',
     glow: 'shadow-rose-900/40',
   },
+  SUSPENDED: {
+    border: 'border-amber-400 border-dashed',
+    bg: 'bg-amber-950/40',
+    text: 'text-amber-300',
+    badgeBg: 'bg-amber-500/20',
+    badgeText: 'text-amber-300',
+    glow: 'shadow-amber-500/30 animate-pulse',
+  },
+  TIMED_OUT: {
+    border: 'border-rose-400',
+    bg: 'bg-rose-950/40',
+    text: 'text-rose-300',
+    badgeBg: 'bg-rose-500/20',
+    badgeText: 'text-rose-300',
+    glow: 'shadow-rose-900/40',
+  },
   NOT_STARTED: {
     border: 'border-slate-700',
     bg: 'bg-slate-900/50',
@@ -87,6 +103,10 @@ function StatusIcon({ status }: { status: StepStatus }) {
       return <RotateCcw className="w-4 h-4 text-amber-400 animate-spin" />;
     case 'COMPENSATED':
       return <RotateCcw className="w-4 h-4 text-amber-400" />;
+    case 'SUSPENDED':
+      return <Clock className="w-4 h-4 text-amber-400 animate-pulse" />;
+    case 'TIMED_OUT':
+      return <AlertCircle className="w-4 h-4 text-rose-400" />;
     case 'FAILED':
       return <AlertCircle className="w-4 h-4 text-rose-400" />;
     default:

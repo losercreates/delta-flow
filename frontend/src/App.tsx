@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Clock,
   Filter,
+  Flame,
 } from 'lucide-react';
 import { SagaGraphDto, SagaSummaryDto, TelemetrySummaryDto } from './types/dashboard';
 import { fetchSagaGraph, fetchSagas, fetchTelemetry } from './services/dashboardApi';
@@ -13,8 +14,9 @@ import { useDashboardStream } from './hooks/useDashboardStream';
 import { TelemetryHeader } from './components/telemetry/TelemetryHeader';
 import { SagaFlowDag } from './components/dag/SagaFlowDag';
 import { IdempotencyInspector } from './components/forensics/IdempotencyInspector';
+import { ChaosControlDashboard } from './components/chaos/ChaosControlDashboard';
 
-type ActiveTab = 'dag' | 'idempotency';
+type ActiveTab = 'dag' | 'idempotency' | 'chaos';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dag');
@@ -135,6 +137,18 @@ export const App: React.FC = () => {
           >
             <Lock className="w-4 h-4" />
             Idempotency Inspector & Forensics
+          </button>
+
+          <button
+            onClick={() => setActiveTab('chaos')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-all ${
+              activeTab === 'chaos'
+                ? 'border-primary-500 text-primary-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-rose-400" />
+            Chaos & Invariants
           </button>
         </div>
 
@@ -261,9 +275,13 @@ export const App: React.FC = () => {
               />
             </main>
           </div>
-        ) : (
+        ) : activeTab === 'idempotency' ? (
           <main className="flex-1 h-full overflow-hidden">
             <IdempotencyInspector />
+          </main>
+        ) : (
+          <main className="flex-1 h-full overflow-hidden">
+            <ChaosControlDashboard />
           </main>
         )}
       </div>

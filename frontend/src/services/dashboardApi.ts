@@ -1,4 +1,6 @@
 import {
+  DeadLetterOutboxEventDto,
+  DlqReplayRequest,
   IdempotencyForensicDto,
   OperatorInterventionRequest,
   OperatorInterventionResult,
@@ -92,4 +94,32 @@ export async function fetchTelemetry(): Promise<TelemetrySummaryDto> {
 
 export function getDashboardStreamUrl(): string {
   return `${BASE_URL}/stream`;
+}
+
+export async function fetchDeadLetterEvents(page = 0, size = 20): Promise<DeadLetterOutboxEventDto[]> {
+  const response = await fetch(`${BASE_URL}/dlq?page=${page}&size=${size}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch DLQ events: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function replayDeadLetterEvent(
+  eventId: string,
+  request: DlqReplayRequest
+): Promise<DeadLetterOutboxEventDto> {
+  const response = await fetch(`${BASE_URL}/dlq/${eventId}/replay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    let errorMsg = `${response.status} ${response.statusText}`;
+    try {
+      const err = await response.json();
+      if (err.message) errorMsg = err.message;
+    } catch {}
+    throw new Error(errorMsg);
+  }
+  return response.json();
 }

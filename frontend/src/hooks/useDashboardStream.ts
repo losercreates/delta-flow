@@ -15,6 +15,8 @@ export function useDashboardStream(options?: UseDashboardStreamOptions) {
 
   const onEventRef = useRef(options?.onEvent);
   onEventRef.current = options?.onEvent;
+  const reconnectDelayRef = useRef(1000);
+  const reconnectTimerRef = useRef<number | null>(null);
 
   const maxBuffer = options?.maxBuffer ?? 50;
 
@@ -32,6 +34,7 @@ export function useDashboardStream(options?: UseDashboardStreamOptions) {
           if (!isCancelled) {
             setConnected(true);
             setError(null);
+            reconnectDelayRef.current = 1000;
           }
         };
 
@@ -56,11 +59,20 @@ export function useDashboardStream(options?: UseDashboardStreamOptions) {
           'SAGA_STARTED',
           'SAGA_STATE_CHANGED',
           'STEP_STATE_CHANGED',
+          'SAGA_SUSPENDED',
+          'SAGA_RESUMED',
+          'SAGA_TIMED_OUT',
           'SAGA_COMPLETED',
           'SAGA_COMPENSATED',
           'OUTBOX_PUBLISHED',
           'OUTBOX_DEAD_LETTER',
+          'OUTBOX_REPLAYED',
           'CIRCUIT_BREAKER_TRIPPED',
+          'CIRCUIT_BREAKER_RESET',
+          'CIRCUIT_BREAKER_TRANSITIONED',
+          'CHAOS_INJECTED',
+          'CHAOS_HEALED',
+          'INVARIANT_CHECKED',
           'OPERATOR_INTERVENTION',
         ];
 
@@ -72,6 +84,11 @@ export function useDashboardStream(options?: UseDashboardStreamOptions) {
           if (!isCancelled) {
             setConnected(false);
             setError('Stream disconnected, attempting reconnection...');
+            eventSource?.close();
+            // Exponential backoff reconnect
+            const nextDelay = Math.min(reconnectDelayRef.current * 1.5, 30000);
+            reconnectDelayRef.current = nextDelay;
+            reconnectTimerRef.current = window.setTimeout(connect, nextDelay);
           }
         };
       } catch (err: unknown) {
@@ -86,6 +103,9 @@ export function useDashboardStream(options?: UseDashboardStreamOptions) {
 
     return () => {
       isCancelled = true;
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+      }
       if (eventSource) {
         eventSource.close();
       }

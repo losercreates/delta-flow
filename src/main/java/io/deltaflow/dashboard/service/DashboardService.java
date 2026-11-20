@@ -30,6 +30,7 @@ public class DashboardService {
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private final DashboardEventBroadcaster eventBroadcaster;
 
     @Autowired
     public DashboardService(
@@ -37,13 +38,15 @@ public class DashboardService {
             SagaStepRepository sagaStepRepository,
             IdempotencyRecordRepository idempotencyRecordRepository,
             OutboxEventRepository outboxEventRepository,
-            @Autowired(required = false) CircuitBreakerRegistry circuitBreakerRegistry
+            @Autowired(required = false) CircuitBreakerRegistry circuitBreakerRegistry,
+            @Autowired(required = false) DashboardEventBroadcaster eventBroadcaster
     ) {
         this.sagaInstanceRepository = sagaInstanceRepository;
         this.sagaStepRepository = sagaStepRepository;
         this.idempotencyRecordRepository = idempotencyRecordRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
+        this.eventBroadcaster = eventBroadcaster;
     }
 
     @Transactional(readOnly = true)
@@ -171,6 +174,86 @@ public class DashboardService {
                 pendingOutbox,
                 deadLetters,
                 cbList
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<DeadLetterOutboxEventDto> listDeadLetterEvents(int page, int size) {
+        List<io.deltaflow.outbox.domain.OutboxEvent> deadLetters = outboxEventRepository.findByStatusOrderByCreatedAtAsc(
+                "DEAD_LETTER", PageRequest.of(page, size)
+        );
+        return deadLetters.stream()
+                .map(e -> {
+                    UUID sagaId = null;
+                    if ("SAGA_INSTANCE".equals(e.getAggregateType()) || "SAGA_STEP".equals(e.getAggregateType())) {
+                        try {
+                            String aggId = e.getAggregateId();
+                            if (aggId.contains(":")) {
+                                aggId = aggId.substring(0, aggId.indexOf(':'));
+                            }
+                            sagaId = UUID.fromString(aggId);
+                        } catch (Exception ignored) {}
+                    }
+                    return new DeadLetterOutboxEventDto(
+                            e.getEventId(),
+                            sagaId,
+                            e.getPartitionKey(),
+                            e.getEventType(),
+                            "domain.events",
+                            e.getPartitionKey(),
+                            e.getPayload(),
+                            e.getRetryCount(),
+                            e.getErrorDetails(),
+                            e.getCreatedAt(),
+                            e.getPublishedAt() != null ? e.getPublishedAt() : e.getCreatedAt()
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public DeadLetterOutboxEventDto replayDeadLetterEvent(UUID eventId, DlqReplayRequest request) {
+        io.deltaflow.outbox.domain.OutboxEvent event = outboxEventRepository.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Outbox event not found: " + eventId));
+
+        if (!"DEAD_LETTER".equals(event.getStatus())) {
+            throw new IllegalStateException("Event " + eventId + " is not in DEAD_LETTER status (status: " + event.getStatus() + ")");
+        }
+
+        event.setStatus("PENDING");
+        event.setRetryCount(0);
+        event.setErrorDetails(null);
+        io.deltaflow.outbox.domain.OutboxEvent saved = outboxEventRepository.save(event);
+
+        if (eventBroadcaster != null) {
+            eventBroadcaster.broadcast("OUTBOX_REPLAYED", null, saved.getPartitionKey(), java.util.Map.of(
+                    "eventId", saved.getEventId().toString(),
+                    "operatorId", request.operatorId(),
+                    "justification", request.justification()
+            ));
+        }
+
+        UUID sagaId = null;
+        try {
+            String aggId = saved.getAggregateId();
+            if (aggId.contains(":")) {
+                aggId = aggId.substring(0, aggId.indexOf(':'));
+            }
+            sagaId = UUID.fromString(aggId);
+        } catch (Exception ignored) {}
+
+        return new DeadLetterOutboxEventDto(
+                saved.getEventId(),
+                sagaId,
+                saved.getPartitionKey(),
+                saved.getEventType(),
+                "domain.events",
+                saved.getPartitionKey(),
+                saved.getPayload(),
+                saved.getRetryCount(),
+                saved.getErrorDetails(),
+                saved.getCreatedAt(),
+                saved.getPublishedAt() != null ? saved.getPublishedAt() : saved.getCreatedAt()
         );
     }
 }
