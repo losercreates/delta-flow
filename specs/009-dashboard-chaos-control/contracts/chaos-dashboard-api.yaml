@@ -1,0 +1,287 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Dashboard & Chaos Control API
+  description: Real-time telemetry, interactive chaos injection, financial invariant audits, and DLQ management.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local / Staging server
+
+paths:
+  /dashboard/stream:
+    get:
+      summary: Real-Time Event Stream (Server-Sent Events)
+      description: Establishes a persistent SSE stream broadcasting saga state transitions, chaos changes, and invariant reports.
+      responses:
+        '200':
+          description: Continuous text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /dashboard/dlq:
+    get:
+      summary: List Dead-Letter Queue (DLQ) Outbox Events
+      description: Returns all outbox events marked as DEAD_LETTER after exceeding publication retries.
+      responses:
+        '200':
+          description: List of dead-lettered events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeadLetterOutboxEventDto'
+
+  /dashboard/dlq/{eventId}/replay:
+    post:
+      summary: Replay a Dead-Lettered Outbox Event
+      description: Resets a dead-lettered outbox event back to PENDING status and triggers immediate dispatch.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DlqReplayRequest'
+      responses:
+        '200':
+          description: Event replayed successfully
+        '404':
+          description: Event not found or not in DEAD_LETTER state
+
+  /chaos/status:
+    get:
+      summary: Get Current Chaos Status
+      description: Returns health and active toxic conditions across all monitored proxies and circuit breakers.
+      responses:
+        '200':
+          description: Current chaos state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChaosStatusDto'
+
+  /chaos/inject:
+    post:
+      summary: Inject Network Chaos / Fault
+      description: Injects latency, packet loss, or network partitions via Toxiproxy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaosInjectionRequest'
+      responses:
+        '200':
+          description: Fault injected successfully
+        '400':
+          description: Invalid fault parameters
+
+  /chaos/heal:
+    post:
+      summary: Heal / Reset All Chaos Conditions
+      description: Removes all active toxics and restores normal network operation.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                proxyName:
+                  type: string
+                  description: Optional specific proxy to heal; if omitted, all proxies are healed.
+                operatorId:
+                  type: string
+                justification:
+                  type: string
+      responses:
+        '200':
+          description: Chaos healed successfully
+
+  /chaos/circuit-breakers/{name}/transition:
+    post:
+      summary: Manually Transition Circuit Breaker State
+      description: Forces a circuit breaker into OPEN, CLOSED, or HALF_OPEN state.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CircuitBreakerTransitionRequest'
+      responses:
+        '200':
+          description: Circuit breaker transitioned successfully
+        '404':
+          description: Circuit breaker not found
+
+  /invariants/verify:
+    get:
+      summary: Verify Financial Invariants
+      description: Audits all completed, compensated, and failed transactions to prove zero double-spend and balance conservation.
+      parameters:
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Comprehensive invariant verification report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvariantVerificationReport'
+
+components:
+  schemas:
+    ChaosInjectionRequest:
+      type: object
+      required:
+        - proxyName
+        - toxicType
+        - operatorId
+        - justification
+      properties:
+        proxyName:
+          type: string
+        toxicType:
+          type: string
+          enum: [LATENCY, PACKET_LOSS, PARTITION]
+        latencyMs:
+          type: integer
+          example: 500
+        jitterMs:
+          type: integer
+          example: 50
+        dropRate:
+          type: number
+          format: float
+          example: 0.3
+        operatorId:
+          type: string
+        justification:
+          type: string
+
+    CircuitBreakerTransitionRequest:
+      type: object
+      required:
+        - targetState
+        - operatorId
+        - justification
+      properties:
+        targetState:
+          type: string
+          enum: [OPEN, CLOSED, HALF_OPEN]
+        operatorId:
+          type: string
+        justification:
+          type: string
+
+    DlqReplayRequest:
+      type: object
+      required:
+        - operatorId
+        - justification
+      properties:
+        operatorId:
+          type: string
+        justification:
+          type: string
+
+    DeadLetterOutboxEventDto:
+      type: object
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        sagaId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+        eventType:
+          type: string
+        topic:
+          type: string
+        partitionKey:
+          type: string
+        payload:
+          type: string
+        retryCount:
+          type: integer
+        errorDetails:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ChaosStatusDto:
+      type: object
+      properties:
+        toxiproxyEnabled:
+          type: boolean
+        activeToxicsCount:
+          type: integer
+        proxies:
+          type: array
+          items:
+            type: object
+        circuitBreakers:
+          type: array
+          items:
+            type: object
+
+    InvariantVerificationReport:
+      type: object
+      properties:
+        verificationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        tenantId:
+          type: string
+          nullable: true
+        totalTransactionsAudited:
+          type: integer
+        successfulCount:
+          type: integer
+        compensatedCount:
+          type: integer
+        failedCount:
+          type: integer
+        totalDebits:
+          type: number
+        totalCredits:
+          type: number
+        totalRefunds:
+          type: number
+        doubleSpendCount:
+          type: integer
+        orphanedDebitCount:
+          type: integer
+        violations:
+          type: array
+          items:
+            type: object
+        passed:
+          type: boolean
