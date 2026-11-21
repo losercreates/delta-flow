@@ -1,0 +1,168 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Cluster & High-Availability API
+  description: Multi-node cluster topology, distributed leader status, and data retention management.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local / Staging server
+
+paths:
+  /cluster/nodes:
+    get:
+      summary: List Active Cluster Nodes
+      description: Returns all discovered cluster instances with role, uptime, and heartbeat status.
+      responses:
+        '200':
+          description: List of active nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClusterNodeDto'
+
+  /cluster/leader:
+    get:
+      summary: Get Leader Election Status
+      description: Returns the currently elected coordinator node and lease expiration details.
+      responses:
+        '200':
+          description: Current leader lease state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaderStatusDto'
+
+  /cluster/retention/status:
+    get:
+      summary: Get Idempotency Retention Pruning Status
+      description: Returns configuration and statistics for the data lifecycle retention manager.
+      responses:
+        '200':
+          description: Retention cleaner statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionSummaryDto'
+
+  /cluster/retention/trigger:
+    post:
+      summary: Trigger On-Demand Retention Pruning
+      description: Manually triggers a batch pruning cycle of expired RESOLVED idempotency records.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetentionTriggerRequest'
+      responses:
+        '200':
+          description: Pruning cycle executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionSummaryDto'
+
+  /cluster/outbox/reclaim-leases:
+    post:
+      summary: Trigger In-Flight Outbox Lease Reclamation
+      description: Scans for outbox events stuck in IN_FLIGHT status past their lease deadline and resets them.
+      responses:
+        '200':
+          description: Reclamation summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxLeaseReclaimResult'
+
+components:
+  schemas:
+    ClusterNodeDto:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        hostname:
+          type: string
+        port:
+          type: integer
+        role:
+          type: string
+          enum: [LEADER, STANDBY]
+        startedAt:
+          type: string
+          format: date-time
+        lastHeartbeatAt:
+          type: string
+          format: date-time
+        isHealthy:
+          type: boolean
+        version:
+          type: string
+
+    LeaderStatusDto:
+      type: object
+      properties:
+        leaderNodeId:
+          type: string
+        isCurrentNodeLeader:
+          type: boolean
+        leaseAcquiredAt:
+          type: string
+          format: date-time
+        leaseExpiresAt:
+          type: string
+          format: date-time
+        leaseDurationMs:
+          type: integer
+
+    RetentionSummaryDto:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        retentionDays:
+          type: integer
+        batchSize:
+          type: integer
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        totalPrunedRecords:
+          type: integer
+        oldestRemainingResolvedRecord:
+          type: string
+          format: date-time
+          nullable: true
+
+    RetentionTriggerRequest:
+      type: object
+      required:
+        - operatorId
+        - justification
+      properties:
+        retentionDays:
+          type: integer
+          example: 30
+        batchSize:
+          type: integer
+          example: 500
+        operatorId:
+          type: string
+        justification:
+          type: string
+
+    OutboxLeaseReclaimResult:
+      type: object
+      properties:
+        scannedCount:
+          type: integer
+        reclaimedCount:
+          type: integer
+        deadLetteredCount:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
