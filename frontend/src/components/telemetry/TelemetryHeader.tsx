@@ -8,17 +8,22 @@ import {
   Radio,
   ShieldCheck,
   ShieldAlert,
+  Crown,
 } from 'lucide-react';
 import { TelemetrySummaryDto } from '../../types/dashboard';
 
 interface TelemetryHeaderProps {
   telemetry: TelemetrySummaryDto | null;
   isLiveConnected: boolean;
+  leaderNodeId?: string;
+  nodeCount?: number;
 }
 
 export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
   telemetry,
   isLiveConnected,
+  leaderNodeId,
+  nodeCount,
 }) => {
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 shadow-md">
@@ -55,6 +60,22 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
 
         {/* Real-Time Metrics Badges */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Cluster Leader & Node Count */}
+          {leaderNodeId && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200">
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs text-amber-300">Leader:</span>
+              <span className="text-xs font-mono font-bold text-amber-100">
+                {leaderNodeId}
+              </span>
+              {nodeCount !== undefined && nodeCount > 0 && (
+                <span className="text-[10px] ml-1 px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                  {nodeCount} {nodeCount === 1 ? 'node' : 'nodes'}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Active Sagas */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-950/40 border border-sky-600/30 text-sky-200">
             <Activity className="w-3.5 h-3.5 text-sky-400" />

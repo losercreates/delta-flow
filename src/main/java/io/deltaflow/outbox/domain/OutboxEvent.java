@@ -49,6 +49,12 @@ public class OutboxEvent {
     @Column(name = "partition_key", length = 128)
     private String partitionKey;
 
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
+    @Column(name = "claimed_by_worker", length = 128)
+    private String claimedByWorker;
+
     public OutboxEvent() {
     }
 
@@ -162,6 +168,45 @@ public class OutboxEvent {
 
     public void setPartitionKey(String partitionKey) {
         this.partitionKey = partitionKey;
+    }
+
+    public Instant getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public void setLeaseExpiresAt(Instant leaseExpiresAt) {
+        this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public String getClaimedByWorker() {
+        return claimedByWorker;
+    }
+
+    public void setClaimedByWorker(String claimedByWorker) {
+        this.claimedByWorker = claimedByWorker;
+    }
+
+    public boolean isLeaseExpired() {
+        return leaseExpiresAt != null && leaseExpiresAt.isBefore(Instant.now());
+    }
+
+    public void claim(String workerId, long leaseDurationSeconds) {
+        this.status = OutboxStatus.IN_FLIGHT.name();
+        this.claimedByWorker = workerId;
+        this.leaseExpiresAt = Instant.now().plusSeconds(leaseDurationSeconds);
+    }
+
+    public void reclaimToPending() {
+        this.status = OutboxStatus.PENDING.name();
+        this.retryCount++;
+        this.leaseExpiresAt = null;
+        this.claimedByWorker = null;
+    }
+
+    public void markDeadLetter(String reason) {
+        this.status = OutboxStatus.DEAD_LETTER.name();
+        this.errorDetails = reason;
+        this.leaseExpiresAt = null;
     }
 }
 

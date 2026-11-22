@@ -7,22 +7,28 @@ import {
   Clock,
   Filter,
   Flame,
+  Server,
 } from 'lucide-react';
 import { SagaGraphDto, SagaSummaryDto, TelemetrySummaryDto } from './types/dashboard';
 import { fetchSagaGraph, fetchSagas, fetchTelemetry } from './services/dashboardApi';
+import { fetchLeaderStatus, fetchClusterNodes } from './services/clusterApi';
 import { useDashboardStream } from './hooks/useDashboardStream';
 import { TelemetryHeader } from './components/telemetry/TelemetryHeader';
 import { SagaFlowDag } from './components/dag/SagaFlowDag';
 import { IdempotencyInspector } from './components/forensics/IdempotencyInspector';
 import { ChaosControlDashboard } from './components/chaos/ChaosControlDashboard';
+import { ClusterTopologyDashboard } from './components/cluster/ClusterTopologyDashboard';
 
-type ActiveTab = 'dag' | 'idempotency' | 'chaos';
+type ActiveTab = 'dag' | 'idempotency' | 'chaos' | 'cluster';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dag');
 
   // Telemetry
   const [telemetry, setTelemetry] = useState<TelemetrySummaryDto | null>(null);
+  const [leaderNodeId, setLeaderNodeId] = useState<string | undefined>(undefined);
+  const [nodeCount, setNodeCount] = useState<number | undefined>(undefined);
+  const [lastEventTimestamp, setLastEventTimestamp] = useState<string>(new Date().toISOString());
 
   // Sagas List
   const [sagas, setSagas] = useState<SagaSummaryDto[]>([]);
@@ -42,6 +48,16 @@ export const App: React.FC = () => {
       setTelemetry(data);
     } catch {
       // ignore telemetry fetch errors in background
+    }
+    try {
+      const [leaderRes, nodesRes] = await Promise.all([
+        fetchLeaderStatus(),
+        fetchClusterNodes(),
+      ]);
+      setLeaderNodeId(leaderRes.leaderNodeId);
+      setNodeCount(nodesRes.length);
+    } catch {
+      // ignore cluster errors
     }
   }, []);
 
@@ -77,6 +93,7 @@ export const App: React.FC = () => {
   // SSE Stream
   const { connected: isLiveConnected } = useDashboardStream({
     onEvent: (event) => {
+      setLastEventTimestamp(new Date().toISOString());
       loadTelemetryData();
       loadSagasList();
       if (selectedSagaId && event.sagaId === selectedSagaId) {
@@ -110,7 +127,12 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* Top Header */}
-      <TelemetryHeader telemetry={telemetry} isLiveConnected={isLiveConnected} />
+      <TelemetryHeader
+        telemetry={telemetry}
+        isLiveConnected={isLiveConnected}
+        leaderNodeId={leaderNodeId}
+        nodeCount={nodeCount}
+      />
 
       {/* Main Tab Bar */}
       <div className="flex items-center justify-between px-6 bg-slate-900/80 border-b border-slate-800">
@@ -149,6 +171,18 @@ export const App: React.FC = () => {
           >
             <Flame className="w-4 h-4 text-rose-400" />
             Chaos & Invariants
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cluster')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-all ${
+              activeTab === 'cluster'
+                ? 'border-primary-500 text-primary-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Server className="w-4 h-4 text-amber-400" />
+            Cluster & HA
           </button>
         </div>
 
@@ -279,9 +313,13 @@ export const App: React.FC = () => {
           <main className="flex-1 h-full overflow-hidden">
             <IdempotencyInspector />
           </main>
-        ) : (
+        ) : activeTab === 'chaos' ? (
           <main className="flex-1 h-full overflow-hidden">
             <ChaosControlDashboard />
+          </main>
+        ) : (
+          <main className="flex-1 h-full overflow-y-auto p-6 bg-slate-950">
+            <ClusterTopologyDashboard lastEventTimestamp={lastEventTimestamp} />
           </main>
         )}
       </div>

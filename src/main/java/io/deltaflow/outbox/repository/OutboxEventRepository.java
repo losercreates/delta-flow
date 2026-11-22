@@ -26,6 +26,15 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     """)
     List<OutboxEvent> findPendingForUpdate(Pageable pageable);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
+    @Query("""
+        SELECT o FROM OutboxEvent o 
+        WHERE o.status = 'IN_FLIGHT' AND o.leaseExpiresAt < :now 
+        ORDER BY o.leaseExpiresAt ASC
+    """)
+    List<OutboxEvent> findExpiredInFlightForUpdate(@Param("now") java.time.Instant now, Pageable pageable);
+
     List<OutboxEvent> findByStatusOrderByCreatedAtAsc(String status, Pageable pageable);
 
     List<OutboxEvent> findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc(String aggregateType, String aggregateId);

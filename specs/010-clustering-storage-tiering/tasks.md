@@ -15,9 +15,9 @@
 
 **Purpose**: Establish database schema migrations, partial indexes, and shared DTOs across backend and frontend.
 
-- [ ] T001 [P] Create Flyway migration `V6__outbox_lease_and_clustering.sql` in `src/main/resources/db/migration/V6__outbox_lease_and_clustering.sql` adding `lease_expires_at` and `claimed_by_worker` columns to `outbox_events` and partial indexes
-- [ ] T002 [P] Create cluster and retention DTO records (`ClusterNodeDto.java`, `LeaderStatusDto.java`, `RetentionSummaryDto.java`, `RetentionTriggerRequest.java`, `OutboxLeaseReclaimResult.java`) in `src/main/java/io/deltaflow/cluster/domain/`
-- [ ] T003 [P] Create frontend TypeScript definitions in `frontend/src/types/cluster.ts`
+- [X] T001 [P] Create Flyway migration `V6__outbox_lease_and_clustering.sql` in `src/main/resources/db/migration/V6__outbox_lease_and_clustering.sql` adding `lease_expires_at` and `claimed_by_worker` columns to `outbox_events` and partial indexes
+- [X] T002 [P] Create cluster and retention DTO records (`ClusterNodeDto.java`, `LeaderStatusDto.java`, `RetentionSummaryDto.java`, `RetentionTriggerRequest.java`, `OutboxLeaseReclaimResult.java`) in `src/main/java/io/deltaflow/cluster/domain/`
+- [X] T003 [P] Create frontend TypeScript definitions in `frontend/src/types/cluster.ts`
 
 ---
 
@@ -25,9 +25,9 @@
 
 **Purpose**: Core entity and repository query extensions required before user stories can execute.
 
-- [ ] T004 Update `OutboxEvent` entity in `src/main/java/io/deltaflow/outbox/domain/OutboxEvent.java` with `leaseExpiresAt` and `claimedByWorker` fields and helper methods
-- [ ] T005 [P] Update `OutboxEventRepository` in `src/main/java/io/deltaflow/outbox/repository/OutboxEventRepository.java` with `findExpiredInFlightForUpdate` query using `PESSIMISTIC_WRITE`
-- [ ] T006 Update `IdempotencyRecordRepository` in `src/main/java/io/deltaflow/idempotency/repository/IdempotencyRecordRepository.java` with `findExpiredResolvedRecords` and batch delete queries
+- [X] T004 Update `OutboxEvent` entity in `src/main/java/io/deltaflow/outbox/domain/OutboxEvent.java` with `leaseExpiresAt` and `claimedByWorker` fields and helper methods
+- [X] T005 [P] Update `OutboxEventRepository` in `src/main/java/io/deltaflow/outbox/repository/OutboxEventRepository.java` with `findExpiredInFlightForUpdate` query using `PESSIMISTIC_WRITE`
+- [X] T006 Update `IdempotencyRecordRepository` in `src/main/java/io/deltaflow/idempotency/repository/IdempotencyRecordRepository.java` with `findExpiredResolvedRecords` and batch delete queries
 
 **Checkpoint**: Foundational schema and repositories ready — user story implementation can begin.
 
@@ -40,11 +40,11 @@
 **Independent Test**: Seed an in-flight outbox event with an expired lease timestamp; run the recovery reaper; verify that the event transitions back to `PENDING`, increments its retry count, logs an `OUTBOX_LEASE_RECLAIMED` audit event, and dispatches on the next sweep.
 
 ### Tests for User Story 1 ⚠️
-- [ ] T007 [P] [US1] Create integration test `InFlightOutboxLeaseRecoveryIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/InFlightOutboxLeaseRecoveryIntegrationTest.java` verifying lease stamping, recovery of expired in-flight events, and routing to dead-letter queue after max retries
+- [X] T007 [P] [US1] Create integration test `InFlightOutboxLeaseRecoveryIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/InFlightOutboxLeaseRecoveryIntegrationTest.java` verifying lease stamping, recovery of expired in-flight events, and routing to dead-letter queue after max retries
 
 ### Implementation for User Story 1
-- [ ] T008 [US1] Update `OutboxPublisher.java` in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java` to stamp `leaseExpiresAt` (now + 60s) and `claimedByWorker` when claiming `PENDING` events
-- [ ] T009 [US1] Implement `OutboxLeaseRecoveryReaper.java` in `src/main/java/io/deltaflow/outbox/service/OutboxLeaseRecoveryReaper.java` with periodic scanning to reclaim expired `IN_FLIGHT` events and broadcast `OUTBOX_LEASE_RECLAIMED` live events
+- [X] T008 [US1] Update `OutboxPublisher.java` in `src/main/java/io/deltaflow/outbox/service/OutboxPublisher.java` to stamp `leaseExpiresAt` (now + 60s) and `claimedByWorker` when claiming `PENDING` events
+- [X] T009 [US1] Implement `OutboxLeaseRecoveryReaper.java` in `src/main/java/io/deltaflow/outbox/service/OutboxLeaseRecoveryReaper.java` with periodic scanning to reclaim expired `IN_FLIGHT` events and broadcast `OUTBOX_LEASE_RECLAIMED` live events
 
 **Checkpoint**: User Story 1 is fully functional and testable independently (MVP ready).
 
@@ -57,11 +57,11 @@
 **Independent Test**: Run two cluster nodes; verify that exactly one node acquires the coordinator leadership lease; verify that background tasks run only on the leader; terminate the leader and verify that the standby node assumes leadership within 5 seconds and resumes scanning.
 
 ### Tests for User Story 2 ⚠️
-- [ ] T010 [P] [US2] Create integration test `ClusterLeaderElectionIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/ClusterLeaderElectionIntegrationTest.java` validating leader lease acquisition, periodic renewal, standby node contention, and automated failover
+- [X] T010 [P] [US2] Create integration test `ClusterLeaderElectionIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/ClusterLeaderElectionIntegrationTest.java` validating leader lease acquisition, periodic renewal, standby node contention, and automated failover
 
 ### Implementation for User Story 2
-- [ ] T011 [US2] Implement `ClusterLeaderElectionService.java` in `src/main/java/io/deltaflow/cluster/service/ClusterLeaderElectionService.java` using `RedissonClient` for atomic lease acquisition (5s), scheduled heartbeat renewal (1.5s), and node topology registration
-- [ ] T012 [US2] Wire `SagaRecoveryScanner.java` in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java` and `OutboxPublisher.java` to check `ClusterLeaderElectionService.isLeader()` before executing scheduled background cycles
+- [X] T011 [US2] Implement `ClusterLeaderElectionService.java` in `src/main/java/io/deltaflow/cluster/service/ClusterLeaderElectionService.java` using `RedissonClient` for atomic lease acquisition (5s), scheduled heartbeat renewal (1.5s), and node topology registration
+- [X] T012 [US2] Wire `SagaRecoveryScanner.java` in `src/main/java/io/deltaflow/saga/service/SagaRecoveryScanner.java` and `OutboxPublisher.java` to check `ClusterLeaderElectionService.isLeader()` before executing scheduled background cycles
 
 **Checkpoint**: User Story 2 is fully functional and testable independently.
 
@@ -74,11 +74,11 @@
 **Independent Test**: Seed resolved idempotency records older than 30 days alongside active `PROCESSING` records; execute the retention cleaner; verify that only expired resolved records are pruned, active locks remain 100% intact, and a summary audit log is emitted.
 
 ### Tests for User Story 3 ⚠️
-- [ ] T013 [P] [US3] Create integration test `IdempotencyRetentionIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/IdempotencyRetentionIntegrationTest.java` verifying batch deletion of expired `RESOLVED` records and 100% preservation of active `PROCESSING` leases
+- [X] T013 [P] [US3] Create integration test `IdempotencyRetentionIntegrationTest.java` in `src/test/java/io/deltaflow/cluster/IdempotencyRetentionIntegrationTest.java` verifying batch deletion of expired `RESOLVED` records and 100% preservation of active `PROCESSING` leases
 
 ### Implementation for User Story 3
-- [ ] T014 [US3] Implement `IdempotencyRetentionService.java` in `src/main/java/io/deltaflow/cluster/service/IdempotencyRetentionService.java` executing scheduled bounded batch deletion (default 500 rows) with audit logging and SSE event broadcasting
-- [ ] T015 [US3] Wire leader election check in `IdempotencyRetentionService.java` so that retention pruning runs exclusively on the elected cluster leader
+- [X] T014 [US3] Implement `IdempotencyRetentionService.java` in `src/main/java/io/deltaflow/cluster/service/IdempotencyRetentionService.java` executing scheduled bounded batch deletion (default 500 rows) with audit logging and SSE event broadcasting
+- [X] T015 [US3] Wire leader election check in `IdempotencyRetentionService.java` so that retention pruning runs exclusively on the elected cluster leader
 
 **Checkpoint**: User Story 3 is fully functional and testable independently.
 
@@ -91,10 +91,10 @@
 **Independent Test**: Query `/api/v1/cluster/nodes` and `/api/v1/cluster/leader`; verify that all active nodes appear with roles and heartbeat age, and verify that triggering retention or lease reclamation updates dashboard telemetry.
 
 ### Implementation for User Story 4
-- [ ] T016 [US4] Implement `ClusterApiController.java` in `src/main/java/io/deltaflow/cluster/api/ClusterApiController.java` exposing endpoints defined in `contracts/cluster-ha-api.yaml`
-- [ ] T017 [P] [US4] Create frontend API client in `frontend/src/services/clusterApi.ts` for cluster nodes, leader status, retention metrics, and on-demand triggers
-- [ ] T018 [P] [US4] Implement `ClusterTopologyDashboard.tsx` in `frontend/src/components/cluster/ClusterTopologyDashboard.tsx` displaying connected nodes, leader election badge, heartbeat age, and retention statistics
-- [ ] T019 [US4] Integrate `ClusterTopologyDashboard` into `frontend/src/App.tsx` and connect live SSE events (`LEADER_ELECTED`, `RETENTION_PRUNED`)
+- [X] T016 [US4] Implement `ClusterApiController.java` in `src/main/java/io/deltaflow/cluster/api/ClusterApiController.java` exposing endpoints defined in `contracts/cluster-ha-api.yaml`
+- [X] T017 [P] [US4] Create frontend API client in `frontend/src/services/clusterApi.ts` for cluster nodes, leader status, retention metrics, and on-demand triggers
+- [X] T018 [P] [US4] Implement `ClusterTopologyDashboard.tsx` in `frontend/src/components/cluster/ClusterTopologyDashboard.tsx` displaying connected nodes, leader election badge, heartbeat age, and retention statistics
+- [X] T019 [US4] Integrate `ClusterTopologyDashboard` into `frontend/src/App.tsx` and connect live SSE events (`LEADER_ELECTED`, `RETENTION_PRUNED`)
 
 **Checkpoint**: User Story 4 is fully functional and testable independently.
 
@@ -104,9 +104,9 @@
 
 **Purpose**: Unify dashboard header indicators, execute end-to-end verification, and run full regression tests.
 
-- [ ] T020 Update `frontend/src/components/telemetry/TelemetryHeader.tsx` to display cluster leader status badge and node count
-- [ ] T021 Execute end-to-end verification scenario per `quickstart.md` and run full regression test suite `mvn test -B`
-- [ ] T022 Verify frontend production build with `npm run build` in `frontend/` directory
+- [X] T020 Update `frontend/src/components/telemetry/TelemetryHeader.tsx` to display cluster leader status badge and node count
+- [X] T021 Execute end-to-end verification scenario per `quickstart.md` and run full regression test suite `mvn test -B`
+- [X] T022 Verify frontend production build with `npm run build` in `frontend/` directory
 
 ---
 

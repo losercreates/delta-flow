@@ -35,6 +35,12 @@ public class OutboxPublisher {
     @Value("${deltaflow.outbox.max-retries:5}")
     private int maxRetries;
 
+    @Value("${deltaflow.outbox.lease-timeout-seconds:60}")
+    private int leaseTimeoutSeconds = 60;
+
+    private final String workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
+    private io.deltaflow.cluster.service.ClusterLeaderElectionService leaderElectionService;
+
     public OutboxPublisher(
             OutboxEventRepository outboxEventRepository,
             DomainEventPublisher domainEventPublisher,
@@ -47,9 +53,21 @@ public class OutboxPublisher {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLeaderElectionService(io.deltaflow.cluster.service.ClusterLeaderElectionService leaderElectionService) {
+        this.leaderElectionService = leaderElectionService;
+    }
+
+    public String getWorkerId() {
+        return workerId;
+    }
+
     @Scheduled(fixedDelayString = "${deltaflow.outbox.poll-interval:1000}")
     public void scheduledPublish() {
         if (!enabled) {
+            return;
+        }
+        if (leaderElectionService != null && !leaderElectionService.isLeader()) {
             return;
         }
         runPublishingScan();
@@ -70,6 +88,8 @@ public class OutboxPublisher {
             List<OutboxEvent> claimed = new ArrayList<>(pending.size());
             for (OutboxEvent event : pending) {
                 event.setStatus(OutboxStatus.IN_FLIGHT.name());
+                event.setClaimedByWorker(workerId);
+                event.setLeaseExpiresAt(Instant.now().plusSeconds(leaseTimeoutSeconds));
                 claimed.add(outboxEventRepository.save(event));
             }
             return claimed;
@@ -87,6 +107,7 @@ public class OutboxPublisher {
                 transactionTemplate.executeWithoutResult(status -> {
                     event.setStatus(OutboxStatus.PUBLISHED.name());
                     event.setPublishedAt(Instant.now());
+                    event.setLeaseExpiresAt(null);
                     outboxEventRepository.save(event);
                 });
 
@@ -110,6 +131,7 @@ public class OutboxPublisher {
 
                     if (retries >= maxRetries) {
                         event.setStatus(OutboxStatus.DEAD_LETTER.name());
+                        event.setLeaseExpiresAt(null);
                         if (domainEventPublisher instanceof KafkaDomainEventPublisher kafkaPub) {
                             kafkaPub.publishToDeadLetterQueue(event, errorMsg);
                         }
@@ -120,6 +142,8 @@ public class OutboxPublisher {
                         auditLogger.logEvent("OUTBOX_DEAD_LETTER", "system", event.getAggregateId(), dlDetails);
                     } else {
                         event.setStatus(OutboxStatus.PENDING.name());
+                        event.setLeaseExpiresAt(null);
+                        event.setClaimedByWorker(null);
                         Map<String, Object> retryDetails = new HashMap<>();
                         retryDetails.put("eventId", event.getEventId().toString());
                         retryDetails.put("retryCount", retries);

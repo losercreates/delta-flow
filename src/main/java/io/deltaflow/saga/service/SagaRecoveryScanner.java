@@ -35,6 +35,7 @@ public class SagaRecoveryScanner {
     private final Map<String, SagaDefinition<?, ?>> sagaDefinitions = new ConcurrentHashMap<>();
     private final String workerId = UUID.randomUUID().toString();
     private io.deltaflow.dashboard.service.DashboardEventBroadcaster eventBroadcaster;
+    private io.deltaflow.cluster.service.ClusterLeaderElectionService leaderElectionService;
 
     @Value("${deltaflow.saga.recovery.enabled:true}")
     private boolean enabled;
@@ -69,6 +70,11 @@ public class SagaRecoveryScanner {
         this.eventBroadcaster = eventBroadcaster;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLeaderElectionService(io.deltaflow.cluster.service.ClusterLeaderElectionService leaderElectionService) {
+        this.leaderElectionService = leaderElectionService;
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         if (!enabled) {
@@ -83,6 +89,9 @@ public class SagaRecoveryScanner {
     @Scheduled(fixedDelayString = "${deltaflow.saga.recovery.poll-interval:5000}")
     public void scheduledScan() {
         if (!enabled) {
+            return;
+        }
+        if (leaderElectionService != null && !leaderElectionService.isLeader()) {
             return;
         }
         runRecoveryScan();
