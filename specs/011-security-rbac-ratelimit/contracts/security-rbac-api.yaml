@@ -1,0 +1,141 @@
+openapi: 3.0.3
+info:
+  title: DeltaFlow Enterprise Security & Rate Limiting API
+  description: Authentication, Current Principal Introspection, and Multi-Tenant Rate Limiting APIs.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local / Staging server
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /auth/login:
+    post:
+      summary: Operator & Client Authentication
+      description: Issues a signed stateless JWT bearer token containing tenant and role claims.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+        '401':
+          description: Invalid username or password
+
+  /auth/me:
+    get:
+      summary: Current Authenticated Principal
+      description: Returns identity, tenant context, and authorities granted to the caller.
+      responses:
+        '200':
+          description: Principal profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserProfileDto'
+        '401':
+          description: Missing or invalid authentication
+
+  /auth/rate-limit/status:
+    get:
+      summary: Get Tenant Rate Limit Status
+      description: Returns token-bucket quota, remaining tokens, and reset countdown for the caller tenant.
+      responses:
+        '200':
+          description: Tenant rate limit quota status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantRateLimitStatusDto'
+        '401':
+          description: Missing or invalid authentication
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token containing tenantId and roles claims.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Machine client secret API key.
+
+  schemas:
+    AuthLoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: deltaflow2026!
+        tenantId:
+          type: string
+          example: default
+
+    AuthLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        expiresInSeconds:
+          type: integer
+          example: 86400
+        tenantId:
+          type: string
+          example: default
+        roles:
+          type: array
+          items:
+            type: string
+          example: [ROLE_ADMIN]
+
+    CurrentUserProfileDto:
+      type: object
+      properties:
+        principalId:
+          type: string
+        tenantId:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        authType:
+          type: string
+          enum: [JWT_BEARER, API_KEY, ANONYMOUS]
+
+    TenantRateLimitStatusDto:
+      type: object
+      properties:
+        tenantId:
+          type: string
+        limit:
+          type: integer
+        remaining:
+          type: integer
+        resetMs:
+          type: integer
+        rateLimited:
+          type: boolean
