@@ -6,9 +6,11 @@ import {
   Zap,
   CheckCircle2,
   RefreshCw,
+  Lock,
 } from 'lucide-react';
 import { ChaosStatusDto, ToxicType } from '../../types/chaos';
 import { healChaos, injectChaos } from '../../services/chaosApi';
+import { useAuth } from '../../context/AuthContext';
 
 interface ChaosInjectorPanelProps {
   status: ChaosStatusDto | null;
@@ -16,6 +18,9 @@ interface ChaosInjectorPanelProps {
 }
 
 export const ChaosInjectorPanel: React.FC<ChaosInjectorPanelProps> = ({ status, onRefresh }) => {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ROLE_ADMIN');
+
   const [selectedProxy, setSelectedProxy] = useState<string>('postgres-proxy');
   const [toxicType, setToxicType] = useState<ToxicType>('LATENCY');
   const [latencyMs, setLatencyMs] = useState<number>(500);
@@ -99,14 +104,17 @@ export const ChaosInjectorPanel: React.FC<ChaosInjectorPanelProps> = ({ status, 
 
         <button
           onClick={handleHeal}
-          disabled={loading || totalActiveToxics === 0}
+          disabled={loading || totalActiveToxics === 0 || !isAdmin}
+          title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            totalActiveToxics > 0
+            !isAdmin
+              ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+              : totalActiveToxics > 0
               ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20'
               : 'bg-slate-800 text-slate-500 cursor-not-allowed'
           }`}
         >
-          <ShieldCheck className="w-4 h-4" />
+          {!isAdmin ? <Lock className="w-3.5 h-3.5" /> : <ShieldCheck className="w-4 h-4" />}
           Heal All Chaos
         </button>
       </div>
@@ -282,11 +290,21 @@ export const ChaosInjectorPanel: React.FC<ChaosInjectorPanelProps> = ({ status, 
 
         <button
           type="submit"
-          disabled={loading}
-          className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-lg shadow-rose-600/20 transition-all disabled:bg-slate-800 disabled:text-slate-500"
+          disabled={loading || !isAdmin}
+          title={!isAdmin ? 'Requires ROLE_ADMIN privilege' : undefined}
+          className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-lg shadow-rose-600/20 transition-all disabled:bg-slate-800 disabled:text-slate-500 disabled:opacity-60"
         >
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          Inject Fault Condition
+          {!isAdmin ? (
+            <>
+              <Lock className="w-4 h-4" />
+              Locked (Requires ROLE_ADMIN)
+            </>
+          ) : loading ? (
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          ) : (
+            <Zap className="w-4 h-4" />
+          )}
+          {isAdmin && 'Inject Fault Condition'}
         </button>
       </form>
     </div>

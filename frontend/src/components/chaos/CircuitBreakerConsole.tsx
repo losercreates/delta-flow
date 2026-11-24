@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { CircuitBreakerStatusDto } from '../../types/dashboard';
 import { transitionCircuitBreaker } from '../../services/chaosApi';
+import { useAuth } from '../../context/AuthContext';
 
 interface CircuitBreakerConsoleProps {
   circuitBreakers: CircuitBreakerStatusDto[];
@@ -18,6 +19,9 @@ export const CircuitBreakerConsole: React.FC<CircuitBreakerConsoleProps> = ({
   circuitBreakers,
   onRefresh,
 }) => {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ROLE_ADMIN');
+
   const [loadingBreaker, setLoadingBreaker] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -115,21 +119,24 @@ export const CircuitBreakerConsole: React.FC<CircuitBreakerConsoleProps> = ({
 
                 <div className="flex items-center gap-1.5 pt-2 border-t border-slate-800/80">
                   <button
-                    disabled={isLoading || isClosed}
+                    disabled={isLoading || isClosed || !isAdmin}
+                    title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
                     onClick={() => handleTransition(cb.name, 'CLOSED')}
                     className="flex-1 py-1 px-2 rounded bg-slate-800 hover:bg-emerald-700/60 text-slate-300 hover:text-emerald-200 text-[10px] font-semibold disabled:opacity-40 disabled:hover:bg-slate-800 transition-colors"
                   >
                     Close
                   </button>
                   <button
-                    disabled={isLoading || isHalfOpen}
+                    disabled={isLoading || isHalfOpen || !isAdmin}
+                    title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
                     onClick={() => handleTransition(cb.name, 'HALF_OPEN')}
                     className="flex-1 py-1 px-2 rounded bg-slate-800 hover:bg-amber-700/60 text-slate-300 hover:text-amber-200 text-[10px] font-semibold disabled:opacity-40 disabled:hover:bg-slate-800 transition-colors"
                   >
                     Half-Open
                   </button>
                   <button
-                    disabled={isLoading || isOpen}
+                    disabled={isLoading || isOpen || !isAdmin}
+                    title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
                     onClick={() => handleTransition(cb.name, 'OPEN')}
                     className="flex-1 py-1 px-2 rounded bg-slate-800 hover:bg-rose-700/60 text-slate-300 hover:text-rose-200 text-[10px] font-semibold disabled:opacity-40 disabled:hover:bg-slate-800 transition-colors"
                   >

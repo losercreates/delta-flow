@@ -10,6 +10,7 @@ import {
   Play,
   RotateCcw,
   Zap,
+  Lock,
 } from 'lucide-react';
 import {
   ClusterNodeDto,
@@ -24,6 +25,7 @@ import {
   triggerRetentionPruning,
   triggerOutboxLeaseReclaim,
 } from '../../services/clusterApi';
+import { useAuth } from '../../context/AuthContext';
 
 interface ClusterTopologyDashboardProps {
   lastEventTimestamp?: string;
@@ -32,6 +34,9 @@ interface ClusterTopologyDashboardProps {
 export const ClusterTopologyDashboard: React.FC<ClusterTopologyDashboardProps> = ({
   lastEventTimestamp,
 }) => {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ROLE_ADMIN');
+
   const [nodes, setNodes] = useState<ClusterNodeDto[]>([]);
   const [leader, setLeader] = useState<LeaderStatusDto | null>(null);
   const [retention, setRetention] = useState<RetentionSummaryDto | null>(null);
@@ -143,10 +148,11 @@ export const ClusterTopologyDashboard: React.FC<ClusterTopologyDashboardProps> =
         <div className="flex items-center gap-3">
           <button
             onClick={handleReclaimLeases}
-            disabled={isReclaiming}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition disabled:opacity-50"
+            disabled={isReclaiming || !isAdmin}
+            title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RotateCcw className={`w-3.5 h-3.5 ${isReclaiming ? 'animate-spin' : ''}`} />
+            {!isAdmin ? <Lock className="w-3.5 h-3.5" /> : <RotateCcw className={`w-3.5 h-3.5 ${isReclaiming ? 'animate-spin' : ''}`} />}
             Reclaim In-Flight Leases
           </button>
           <button
@@ -381,11 +387,12 @@ export const ClusterTopologyDashboard: React.FC<ClusterTopologyDashboardProps> =
 
               <button
                 type="submit"
-                disabled={isPruning}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs shadow-lg shadow-primary-600/30 transition disabled:opacity-50"
+                disabled={isPruning || !isAdmin}
+                title={!isAdmin ? 'Requires ROLE_ADMIN role' : undefined}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs shadow-lg shadow-primary-600/30 transition disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500"
               >
-                <Trash2 className={`w-3.5 h-3.5 ${isPruning ? 'animate-pulse' : ''}`} />
-                {isPruning ? 'Pruning...' : 'Execute Retention Pruning'}
+                {!isAdmin ? <Lock className="w-3.5 h-3.5" /> : <Trash2 className={`w-3.5 h-3.5 ${isPruning ? 'animate-pulse' : ''}`} />}
+                {!isAdmin ? 'Locked (Requires ROLE_ADMIN)' : isPruning ? 'Pruning...' : 'Execute Retention Pruning'}
               </button>
             </div>
           </form>

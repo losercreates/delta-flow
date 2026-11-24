@@ -6,11 +6,14 @@ import {
   ProxyStatusDto,
 } from '../types/chaos';
 import { CircuitBreakerStatusDto } from '../types/dashboard';
+import { getAuthHeaders } from './authApi';
 
 const BASE_URL = '/api/v1';
 
 export async function fetchChaosStatus(): Promise<ChaosStatusDto> {
-  const response = await fetch(`${BASE_URL}/chaos/status`);
+  const response = await fetch(`${BASE_URL}/chaos/status`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch chaos status: ${response.status} ${response.statusText}`);
   }
@@ -20,7 +23,10 @@ export async function fetchChaosStatus(): Promise<ChaosStatusDto> {
 export async function injectChaos(request: ChaosInjectionRequest): Promise<ProxyStatusDto> {
   const response = await fetch(`${BASE_URL}/chaos/inject`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -41,7 +47,10 @@ export async function healChaos(
 ): Promise<void> {
   const response = await fetch(`${BASE_URL}/chaos/heal`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ proxyName, operatorId, justification }),
   });
   if (!response.ok) {
@@ -55,7 +64,10 @@ export async function transitionCircuitBreaker(
 ): Promise<CircuitBreakerStatusDto> {
   const response = await fetch(`${BASE_URL}/chaos/circuit-breakers/${encodeURIComponent(name)}/transition`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -73,7 +85,9 @@ export async function verifyFinancialInvariants(tenantId?: string): Promise<Inva
   const url = tenantId
     ? `${BASE_URL}/invariants/verify?tenantId=${encodeURIComponent(tenantId)}`
     : `${BASE_URL}/invariants/verify`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to verify invariants: ${response.status} ${response.statusText}`);
   }

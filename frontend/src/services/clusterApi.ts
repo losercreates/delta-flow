@@ -5,11 +5,14 @@ import {
   RetentionTriggerRequest,
   OutboxLeaseReclaimResult,
 } from '../types/cluster';
+import { getAuthHeaders } from './authApi';
 
 const BASE_URL = '/api/v1/cluster';
 
 export async function fetchClusterNodes(): Promise<ClusterNodeDto[]> {
-  const response = await fetch(`${BASE_URL}/nodes`);
+  const response = await fetch(`${BASE_URL}/nodes`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch cluster nodes: ${response.status} ${response.statusText}`);
   }
@@ -17,7 +20,9 @@ export async function fetchClusterNodes(): Promise<ClusterNodeDto[]> {
 }
 
 export async function fetchLeaderStatus(): Promise<LeaderStatusDto> {
-  const response = await fetch(`${BASE_URL}/leader`);
+  const response = await fetch(`${BASE_URL}/leader`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch leader status: ${response.status} ${response.statusText}`);
   }
@@ -25,7 +30,9 @@ export async function fetchLeaderStatus(): Promise<LeaderStatusDto> {
 }
 
 export async function fetchRetentionStatus(): Promise<RetentionSummaryDto> {
-  const response = await fetch(`${BASE_URL}/retention/status`);
+  const response = await fetch(`${BASE_URL}/retention/status`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch retention status: ${response.status} ${response.statusText}`);
   }
@@ -39,6 +46,7 @@ export async function triggerRetentionPruning(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
     },
     body: JSON.stringify(request),
   });
@@ -51,6 +59,7 @@ export async function triggerRetentionPruning(
 export async function triggerOutboxLeaseReclaim(): Promise<OutboxLeaseReclaimResult> {
   const response = await fetch(`${BASE_URL}/outbox/reclaim-leases`, {
     method: 'POST',
+    headers: { ...getAuthHeaders() },
   });
   if (!response.ok) {
     throw new Error(`Failed to trigger outbox lease reclaim: ${response.status} ${response.statusText}`);

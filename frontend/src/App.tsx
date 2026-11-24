@@ -18,11 +18,14 @@ import { SagaFlowDag } from './components/dag/SagaFlowDag';
 import { IdempotencyInspector } from './components/forensics/IdempotencyInspector';
 import { ChaosControlDashboard } from './components/chaos/ChaosControlDashboard';
 import { ClusterTopologyDashboard } from './components/cluster/ClusterTopologyDashboard';
+import { AuthProvider } from './context/AuthContext';
+import { OperatorLoginModal } from './components/auth/OperatorLoginModal';
 
 type ActiveTab = 'dag' | 'idempotency' | 'chaos' | 'cluster';
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dag');
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   // Telemetry
   const [telemetry, setTelemetry] = useState<TelemetrySummaryDto | null>(null);
@@ -132,6 +135,7 @@ export const App: React.FC = () => {
         isLiveConnected={isLiveConnected}
         leaderNodeId={leaderNodeId}
         nodeCount={nodeCount}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
       />
 
       {/* Main Tab Bar */}
@@ -323,7 +327,21 @@ export const App: React.FC = () => {
           </main>
         )}
       </div>
+
+      {/* Operator Session & Role Modal */}
+      <OperatorLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

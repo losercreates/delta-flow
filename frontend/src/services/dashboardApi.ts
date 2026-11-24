@@ -8,6 +8,7 @@ import {
   SagaSummaryDto,
   TelemetrySummaryDto,
 } from '../types/dashboard';
+import { getAuthHeaders } from './authApi';
 
 const BASE_URL = '/api/v1/dashboard';
 
@@ -23,7 +24,9 @@ export async function fetchSagas(
   params.set('page', page.toString());
   params.set('size', size.toString());
 
-  const response = await fetch(`${BASE_URL}/sagas?${params.toString()}`);
+  const response = await fetch(`${BASE_URL}/sagas?${params.toString()}`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch sagas: ${response.status} ${response.statusText}`);
   }
@@ -31,7 +34,9 @@ export async function fetchSagas(
 }
 
 export async function fetchSagaGraph(sagaId: string): Promise<SagaGraphDto> {
-  const response = await fetch(`${BASE_URL}/sagas/${sagaId}/graph`);
+  const response = await fetch(`${BASE_URL}/sagas/${sagaId}/graph`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch saga graph for ${sagaId}: ${response.status} ${response.statusText}`);
   }
@@ -46,6 +51,7 @@ export async function executeIntervention(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
     },
     body: JSON.stringify(request),
   });
@@ -77,7 +83,9 @@ export async function searchIdempotency(params: {
   if (params.tenantId) query.set('tenantId', params.tenantId);
   if (params.status) query.set('status', params.status);
 
-  const response = await fetch(`${BASE_URL}/idempotency?${query.toString()}`);
+  const response = await fetch(`${BASE_URL}/idempotency?${query.toString()}`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to search idempotency records: ${response.status} ${response.statusText}`);
   }
@@ -85,7 +93,9 @@ export async function searchIdempotency(params: {
 }
 
 export async function fetchTelemetry(): Promise<TelemetrySummaryDto> {
-  const response = await fetch(`${BASE_URL}/telemetry`);
+  const response = await fetch(`${BASE_URL}/telemetry`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch telemetry: ${response.status} ${response.statusText}`);
   }
@@ -97,7 +107,9 @@ export function getDashboardStreamUrl(): string {
 }
 
 export async function fetchDeadLetterEvents(page = 0, size = 20): Promise<DeadLetterOutboxEventDto[]> {
-  const response = await fetch(`${BASE_URL}/dlq?page=${page}&size=${size}`);
+  const response = await fetch(`${BASE_URL}/dlq?page=${page}&size=${size}`, {
+    headers: { ...getAuthHeaders() },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch DLQ events: ${response.status} ${response.statusText}`);
   }
@@ -110,7 +122,10 @@ export async function replayDeadLetterEvent(
 ): Promise<DeadLetterOutboxEventDto> {
   const response = await fetch(`${BASE_URL}/dlq/${eventId}/replay`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify(request),
   });
   if (!response.ok) {

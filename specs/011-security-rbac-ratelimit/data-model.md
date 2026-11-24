@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_tenant_api_keys_hash
 INSERT INTO tenant_api_keys (key_id, hashed_key, tenant_id, description, roles, enabled)
 VALUES (
     'key-alpha-service',
-    '70be0b26b3c2e17e4763297a73f554695029c0f0653d997cc0f287e076618451',
+    '6dc280d121f7f4b99a2c75445848f87962f2e5d1c0fd1ce06bf88f6e7eb15830',
     'tenant-alpha',
     'Tenant Alpha Machine Service Account',
     'ROLE_SERVICE',

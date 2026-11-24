@@ -7,9 +7,11 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 import { DeadLetterOutboxEventDto } from '../../types/dashboard';
 import { fetchDeadLetterEvents, replayDeadLetterEvent } from '../../services/dashboardApi';
+import { useAuth } from '../../context/AuthContext';
 
 interface DlqInspectorModalProps {
   isOpen: boolean;
@@ -22,6 +24,9 @@ export const DlqInspectorModal: React.FC<DlqInspectorModalProps> = ({
   onClose,
   onReplaySuccess,
 }) => {
+  const { hasRole } = useAuth();
+  const canReplay = hasRole('ROLE_OPERATOR') || hasRole('ROLE_ADMIN');
+
   const [events, setEvents] = useState<DeadLetterOutboxEventDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<DeadLetterOutboxEventDto | null>(null);
@@ -233,15 +238,21 @@ export const DlqInspectorModal: React.FC<DlqInspectorModalProps> = ({
 
                   <button
                     onClick={handleReplay}
-                    disabled={replaying}
-                    className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50"
+                    disabled={replaying || !canReplay}
+                    title={!canReplay ? 'Requires ROLE_OPERATOR or ROLE_ADMIN privilege' : undefined}
+                    className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500"
                   >
-                    {replaying ? (
+                    {!canReplay ? (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        Locked (Requires ROLE_OPERATOR)
+                      </>
+                    ) : replaying ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <RotateCcw className="w-4 h-4" />
                     )}
-                    Replay Event (Reset to PENDING)
+                    {canReplay && 'Replay Event (Reset to PENDING)'}
                   </button>
                 </div>
               </>

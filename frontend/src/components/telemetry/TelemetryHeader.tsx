@@ -9,14 +9,19 @@ import {
   ShieldCheck,
   ShieldAlert,
   Crown,
+  Shield,
+  Lock,
+  Gauge,
 } from 'lucide-react';
 import { TelemetrySummaryDto } from '../../types/dashboard';
+import { useAuth } from '../../context/AuthContext';
 
 interface TelemetryHeaderProps {
   telemetry: TelemetrySummaryDto | null;
   isLiveConnected: boolean;
   leaderNodeId?: string;
   nodeCount?: number;
+  onOpenLoginModal?: () => void;
 }
 
 export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
@@ -24,7 +29,9 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
   isLiveConnected,
   leaderNodeId,
   nodeCount,
+  onOpenLoginModal,
 }) => {
+  const { profile, rateLimit, isAuthenticated } = useAuth();
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 shadow-md">
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -58,8 +65,65 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
           </div>
         </div>
 
-        {/* Real-Time Metrics Badges */}
+        {/* Real-Time Metrics & Security Badges */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Operator Security Profile & Role Badge */}
+          <button
+            onClick={onOpenLoginModal}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs transition-all shadow-sm ${
+              isAuthenticated && profile
+                ? 'bg-slate-850 hover:bg-slate-800 border-slate-700 text-slate-200'
+                : 'bg-primary-600/20 hover:bg-primary-600/30 border-primary-500/40 text-primary-300 font-semibold'
+            }`}
+          >
+            {isAuthenticated && profile ? (
+              <>
+                <Shield className="w-3.5 h-3.5 text-primary-400" />
+                <span className="font-mono text-xs">{profile.principalId}</span>
+                <span
+                  className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                    profile.roles.includes('ROLE_ADMIN')
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : profile.roles.includes('ROLE_OPERATOR')
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                  }`}
+                >
+                  {profile.roles.includes('ROLE_ADMIN')
+                    ? 'ADMIN'
+                    : profile.roles.includes('ROLE_OPERATOR')
+                    ? 'OPERATOR'
+                    : 'VIEWER'}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">({profile.tenantId})</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-3.5 h-3.5" />
+                <span>Operator Login</span>
+              </>
+            )}
+          </button>
+
+          {/* Tenant Rate Limit Status */}
+          {rateLimit && (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs ${
+                rateLimit.rateLimited
+                  ? 'bg-rose-950/40 border-rose-500/50 text-rose-200 font-bold animate-pulse'
+                  : rateLimit.remaining < 20
+                  ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                  : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+              }`}
+            >
+              <Gauge className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-slate-400 text-[11px]">Rate Limit:</span>
+              <span className="font-mono font-bold">
+                {rateLimit.remaining}/{rateLimit.limit}
+              </span>
+            </div>
+          )}
+
           {/* Cluster Leader & Node Count */}
           {leaderNodeId && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200">

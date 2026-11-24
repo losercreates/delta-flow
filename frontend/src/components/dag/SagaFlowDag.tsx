@@ -12,11 +12,12 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
-import { RefreshCw, Wrench, Layers, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Wrench, Layers, CheckCircle2, Lock } from 'lucide-react';
 import { OperatorInterventionResult, SagaGraphDto, SagaNodeDto } from '../../types/dashboard';
 import { StepNodeCard } from './StepNodeCard';
 import { StepDetailDrawer } from './StepDetailDrawer';
 import { InterventionModal } from '../intervention/InterventionModal';
+import { useAuth } from '../../context/AuthContext';
 
 interface SagaFlowDagProps {
   graph: SagaGraphDto | null;
@@ -57,6 +58,9 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
 }
 
 export const SagaFlowDag: React.FC<SagaFlowDagProps> = ({ graph, onRefresh, onInterveneSuccess }) => {
+  const { hasRole } = useAuth();
+  const canIntervene = hasRole('ROLE_OPERATOR') || hasRole('ROLE_ADMIN');
+
   const [selectedNode, setSelectedNode] = useState<SagaNodeDto | null>(null);
   const [isInterventionModalOpen, setIsInterventionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -166,14 +170,18 @@ export const SagaFlowDag: React.FC<SagaFlowDagProps> = ({ graph, onRefresh, onIn
 
         <button
           onClick={() => setIsInterventionModalOpen(true)}
+          disabled={!canIntervene}
+          title={!canIntervene ? 'Requires ROLE_OPERATOR or ROLE_ADMIN privilege' : undefined}
           className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded font-semibold transition-all shadow-md ${
-            isHaltedOrFailed
+            !canIntervene
+              ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+              : isHaltedOrFailed
               ? 'bg-rose-600 hover:bg-rose-500 text-white ring-2 ring-rose-400 animate-bounce'
               : 'bg-amber-600/90 hover:bg-amber-500 text-white'
           }`}
         >
-          <Wrench className="w-3.5 h-3.5" />
-          Manual Intervention
+          {!canIntervene ? <Lock className="w-3.5 h-3.5" /> : <Wrench className="w-3.5 h-3.5" />}
+          {!canIntervene ? 'Intervention Locked' : 'Manual Intervention'}
         </button>
       </div>
 
